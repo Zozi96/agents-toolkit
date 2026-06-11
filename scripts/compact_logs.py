@@ -13,24 +13,13 @@ import argparse
 from collections import deque
 import os
 import re
+import sys
 
-DEFAULT_IGNORE_DIRS = {
-    'node_modules', '.venv', 'venv', 'dist', 'build', 'coverage', '.next', '.nuxt',
-    'target', 'bin', 'obj', '.git', '.cache', '__pycache__', '.pytest_cache',
-    '.mypy_cache', '.ruff_cache', 'archive', 'vendor', 'tmp', 'temp'
-}
-
-def truncate_line(line, length=240):
-    return line if len(line) <= length else line[:length] + "..."
-
-def truncate(text, max_chars=12000):
-    if len(text) > max_chars:
-        return text[:max_chars] + "\n...[TRUNCATED]"
-    return text
+from _agent_utils import iter_text_files, redact_text, truncate, truncate_line
 
 def main():
     parser = argparse.ArgumentParser(description="Compact and filter logs.")
-    parser.add_argument('paths', nargs='+', help="Files or dirs")
+    parser.add_argument('paths', nargs='+', help="Files, dirs, or - for stdin")
     parser.add_argument('--keyword', action='append', default=[])
     parser.add_argument('--regex', type=str, default=None)
     parser.add_argument('--level', action='append', default=[])
@@ -45,16 +34,10 @@ def main():
     args = parser.parse_args()
 
     files_to_scan = []
-    for path in args.paths:
-        p = os.path.abspath(path)
-        if os.path.isfile(p):
-            files_to_scan.append(p)
-        elif os.path.isdir(p):
-            for root, dirs, files in os.walk(p):
-                dirs[:] = [d for d in dirs if d not in DEFAULT_IGNORE_DIRS and not d.startswith('.')]
-                for f in files:
-                    if not f.startswith('.'):
-                        files_to_scan.append(os.path.join(root, f))
+    if args.paths == ['-']:
+        files_to_scan = ['-']
+    else:
+        files_to_scan = list(iter_text_files(args.paths, max_file_mb=args.max_file_mb, ignore_exts=set()))
 
     matches = []
     flags = 0 if args.case_sensitive else re.IGNORECASE
@@ -68,8 +51,10 @@ def main():
 
     for filepath in files_to_scan:
         try:
-            if os.path.getsize(filepath) / (1024 * 1024) > args.max_file_mb: continue
-            if args.tail > 0:
+            if filepath == '-':
+                lines = sys.stdin
+                close_lines = None
+            elif args.tail > 0:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     lines = list(deque(f, maxlen=args.tail))
                 close_lines = None
@@ -85,7 +70,7 @@ def main():
                     line_to_check = line if args.case_sensitive else line.lower()
 
                     if after_remaining > 0:
-                        active_context.append(truncate_line(line.rstrip(), args.line_width))
+                        active_context.append(truncate_line(redact_text(line.rstrip()), args.line_width))
                         after_remaining -= 1
                         if after_remaining == 0:
                             matches.append((filepath, "\n".join(active_context)))
@@ -112,8 +97,8 @@ def main():
                         previous.append(line.rstrip())
                         continue
 
-                    active_context = [truncate_line(prev_line, args.line_width) for prev_line in previous]
-                    active_context.append(truncate_line(line.rstrip(), args.line_width))
+                    active_context = [truncate_line(redact_text(prev_line), args.line_width) for prev_line in previous]
+                    active_context.append(truncate_line(redact_text(line.rstrip()), args.line_width))
                     after_remaining = args.context
                     if after_remaining == 0:
                         matches.append((filepath, "\n".join(active_context)))

@@ -15,17 +15,9 @@ import argparse
 from collections import deque
 import os
 import re
+import sys
 
-DEFAULT_IGNORE_DIRS = {
-    'node_modules', '.venv', 'venv', 'dist', 'build', 'coverage', '.next', '.nuxt',
-    'target', 'bin', 'obj', '.git', '.cache', '__pycache__', '.pytest_cache',
-    '.mypy_cache', '.ruff_cache', 'archive', 'vendor', 'tmp', 'temp'
-}
-DEFAULT_IGNORE_EXTS = {
-    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip', '.gz',
-    '.tar', '.rar', '.7z', '.exe', '.dll', '.so', '.dylib', '.bin', '.db',
-    '.sqlite', '.sqlite3', '.pyc', '.pyo', '.class', '.o'
-}
+from _agent_utils import iter_text_files, normalize_exts, redact_text, truncate, truncate_line
 
 DEFAULT_PATTERNS = [
     'ERROR', 'Exception', 'Traceback', 'Failed', 'Failure', 'Fatal', 'Panic',
@@ -36,17 +28,9 @@ DEFAULT_PATTERNS = [
 
 WARNING_PATTERNS = ['WARN', 'Warning', 'Deprecated']
 
-def truncate(text, max_chars):
-    if len(text) > max_chars:
-        return text[:max_chars] + "\n...[TRUNCATED]"
-    return text
-
-def truncate_line(line, length=240):
-    return line if len(line) <= length else line[:length] + "..."
-
 def main():
     parser = argparse.ArgumentParser(description="Scan for errors.")
-    parser.add_argument('path', nargs='?', default='.', help="File or dir")
+    parser.add_argument('path', nargs='?', default='.', help="File, dir, or - for stdin")
     parser.add_argument('--limit', type=int, default=50)
     parser.add_argument('--context', type=int, default=0)
     parser.add_argument('--max-file-mb', type=float, default=10.0)
@@ -69,41 +53,34 @@ def main():
             print(f"Invalid regex: {e}")
             return
             
-    allowed_exts = set(e.strip().lower() for e in args.extensions.split(',')) if args.extensions else None
+    allowed_exts = normalize_exts(args.extensions)
 
     files_to_scan = []
     base_path = os.path.abspath(args.path)
-    if os.path.isfile(base_path):
-        files_to_scan.append(base_path)
+    if args.path == '-':
+        files_to_scan = ['-']
     else:
-        for root, dirs, files in os.walk(base_path):
-            dirs[:] = [d for d in dirs if d not in DEFAULT_IGNORE_DIRS and not d.startswith('.')]
-            for f in files:
-                ext = os.path.splitext(f)[1].lower()
-                if ext in DEFAULT_IGNORE_EXTS: continue
-                if allowed_exts and ext not in allowed_exts and ext != '': continue
-                files_to_scan.append(os.path.join(root, f))
+        files_to_scan = list(iter_text_files([base_path], allowed_exts=allowed_exts, max_file_mb=args.max_file_mb))
 
     total_scanned = 0
     matches = []
     
     for filepath in files_to_scan:
         try:
-            if os.path.getsize(filepath) / (1024 * 1024) > args.max_file_mb:
-                continue
             total_scanned += 1
 
             previous = deque(maxlen=args.context)
             after_remaining = 0
             active_context = []
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            source = sys.stdin if filepath == '-' else open(filepath, 'r', encoding='utf-8', errors='ignore')
+            with source as f:
                 for i, line in enumerate(f):
                     line_no = i + 1
                     if after_remaining > 0:
-                        active_context.append(f"   {line_no}: {truncate_line(line.rstrip(), args.line_width)}")
+                        active_context.append(f"   {line_no}: {truncate_line(redact_text(line.rstrip()), args.line_width)}")
                         after_remaining -= 1
                         if after_remaining == 0:
-                            rel = os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
+                            rel = "stdin" if filepath == '-' else os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
                             matches.append((rel, "\n".join(active_context)))
                             active_context = []
                             if len(matches) >= args.limit:
@@ -113,13 +90,13 @@ def main():
 
                     if any(r.search(line) for r in regexes):
                         active_context = [
-                            f"   {n}: {truncate_line(prev_line, args.line_width)}"
+                            f"   {n}: {truncate_line(redact_text(prev_line), args.line_width)}"
                             for n, prev_line in previous
                         ]
-                        active_context.append(f">> {line_no}: {truncate_line(line.rstrip(), args.line_width)}")
+                        active_context.append(f">> {line_no}: {truncate_line(redact_text(line.rstrip()), args.line_width)}")
                         after_remaining = args.context
                         if after_remaining == 0:
-                            rel = os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
+                            rel = "stdin" if filepath == '-' else os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
                             matches.append((rel, "\n".join(active_context)))
                             active_context = []
                             if len(matches) >= args.limit:
@@ -129,7 +106,7 @@ def main():
                         previous.append((line_no, line.rstrip()))
 
             if active_context and len(matches) < args.limit:
-                rel = os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
+                rel = "stdin" if filepath == '-' else os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
                 matches.append((rel, "\n".join(active_context)))
         except Exception:
             pass

@@ -11,20 +11,12 @@ Examples:
 """
 
 import argparse
+import fnmatch
 import os
 import sys
 from collections import defaultdict
 
-DEFAULT_IGNORE_DIRS = {
-    'node_modules', '.venv', 'venv', 'dist', 'build', 'coverage', '.next', '.nuxt',
-    'target', 'bin', 'obj', '.git', '.cache', '__pycache__', '.pytest_cache',
-    '.mypy_cache', '.ruff_cache', 'archive', 'vendor', 'tmp', 'temp'
-}
-DEFAULT_IGNORE_EXTS = {
-    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip', '.gz',
-    '.tar', '.rar', '.7z', '.exe', '.dll', '.so', '.dylib', '.bin', '.db',
-    '.sqlite', '.sqlite3', '.pyc', '.pyo', '.class', '.o'
-}
+from _agent_utils import DEFAULT_IGNORE_DIRS, DEFAULT_IGNORE_EXTS, is_binary_file, truncate
 
 STACK_INDICATORS = {
     'Python': ['pyproject.toml', 'requirements.txt', 'setup.py', 'setup.cfg', 'Pipfile', 'poetry.lock', 'manage.py', 'main.py', 'app.py'],
@@ -33,11 +25,6 @@ STACK_INDICATORS = {
     'Docker/Infra': ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml', 'kubernetes', 'helm', '.github/workflows'],
     'DB/ORM': ['prisma/schema.prisma', 'migrations', 'alembic', 'sequelize', 'typeorm']
 }
-
-def truncate(text, max_chars):
-    if len(text) > max_chars:
-        return text[:max_chars] + "\n...[TRUNCATED]"
-    return text
 
 def main():
     parser = argparse.ArgumentParser(description="Create a compact repository map.")
@@ -86,6 +73,7 @@ def main():
             if not args.include_hidden and f.startswith('.'): continue
             ext = os.path.splitext(f)[1].lower()
             if ext in DEFAULT_IGNORE_EXTS: continue
+            if is_binary_file(os.path.join(root, f)): continue
             
             file_counts[ext] += 1
             rel_path = os.path.join(rel_root, f) if rel_root else f
@@ -101,8 +89,9 @@ def main():
     for f in file_list:
         for stack, indicators in STACK_INDICATORS.items():
             for ind in indicators:
-                if ind.startswith('*'):
-                    if f.endswith(ind[1:]): stack_detected.add(stack)
+                if any(ch in ind for ch in '*?['):
+                    if fnmatch.fnmatch(f, ind) or fnmatch.fnmatch(os.path.basename(f), ind):
+                        stack_detected.add(stack)
                 elif f == ind or f.endswith('/' + ind):
                     stack_detected.add(stack)
                     

@@ -14,13 +14,7 @@ from collections import deque
 import sys
 import re
 
-def truncate(text, max_chars):
-    if len(text) > max_chars:
-        return text[:max_chars] + "\n...[TRUNCATED]"
-    return text
-
-def truncate_line(line, length=240):
-    return line if len(line) <= length else line[:length] + "..."
+from _agent_utils import redact_text, truncate, truncate_line
 
 def main():
     parser = argparse.ArgumentParser(description="Summarize test outputs.")
@@ -61,7 +55,7 @@ def main():
                 elif "dotnet test" in low or "xunit" in low or "nunit" in low: framework = "dotnet"
 
             if after_remaining > 0:
-                active_snippet.append(truncate_line(line.rstrip(), args.line_width))
+                active_snippet.append(truncate_line(redact_text(line.rstrip()), args.line_width))
                 after_remaining -= 1
                 if after_remaining == 0:
                     failures.append(active_snippet)
@@ -72,8 +66,8 @@ def main():
                 continue
 
             if fail_regex.search(line):
-                active_snippet = [truncate_line(prev, args.line_width) for prev in previous]
-                active_snippet.append(truncate_line(line.rstrip(), args.line_width))
+                active_snippet = [truncate_line(redact_text(prev), args.line_width) for prev in previous]
+                active_snippet.append(truncate_line(redact_text(line.rstrip()), args.line_width))
                 after_remaining = args.context
                 if after_remaining == 0:
                     failures.append(active_snippet)

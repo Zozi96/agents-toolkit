@@ -162,6 +162,7 @@ When inspecting repositories, logs, test outputs, JSON, CSV, TSV, JSONL, dataset
 
 **Required helpers:**
 * Use `repo_map.py` before broad repository exploration.
+* Use `safe_read.py` before manually reading large, unknown, or sensitive text files.
 * Use `scan_errors.py` before manually reading large logs or test failures.
 * Use `summarize_tests.py` before inspecting full test output.
 * Use `summarize_json.py` before opening large JSON files.
@@ -187,6 +188,7 @@ Do not create helper scripts inside repositories unless explicitly requested.
 
 **Preferred helpers:**
 * `repo_map.py`
+* `safe_read.py`
 * `scan_errors.py`
 * `summarize_tests.py`
 * `summarize_json.py`

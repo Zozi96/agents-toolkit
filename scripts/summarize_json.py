@@ -13,20 +13,7 @@ import argparse
 import sys
 import json
 
-SENSITIVE_KEYS = [
-    'password', 'passwd', 'pwd', 'secret', 'token', 'api_key', 'apikey',
-    'authorization', 'auth', 'cookie', 'session', 'private', 'credential',
-    'access_key', 'refresh_token'
-]
-
-def truncate(text, max_chars):
-    if len(text) > max_chars:
-        return text[:max_chars] + "...[TRUNCATED]"
-    return text
-
-def is_sensitive(key):
-    k = str(key).lower()
-    return any(s in k for s in SENSITIVE_KEYS)
+from _agent_utils import is_sensitive_key, redact_text, truncate_line
 
 def summarize_data(data, args, depth=0):
     indent = "  " * depth
@@ -40,7 +27,7 @@ def summarize_data(data, args, depth=0):
                 lines.append(f"{indent}  {k}: {type(v).__name__}")
                 lines.append(summarize_data(v, args, depth + 1))
             else:
-                val = "*****" if is_sensitive(k) else (truncate(str(v), 50) if args.show_values else type(v).__name__)
+                val = "****" if is_sensitive_key(k) else (truncate_line(redact_text(v), 50) if args.show_values else type(v).__name__)
                 lines.append(f"{indent}  {k}: {val}")
         if len(data) > args.max_keys:
             lines.append(f"{indent}  ... and {len(data) - args.max_keys} more keys")

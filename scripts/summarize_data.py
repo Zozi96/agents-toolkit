@@ -14,16 +14,14 @@ from collections import Counter
 import csv
 import json
 import os
+import sys
+from io import StringIO
 
-def truncate(text, max_chars=12000):
-    text = str(text)
-    if len(text) > max_chars:
-        return text[:max_chars] + "\n...[TRUNCATED]"
-    return text
+from _agent_utils import is_sensitive_key, redact_obj, redact_text, truncate, truncate_line
 
 def main():
     parser = argparse.ArgumentParser(description="Summarize data files.")
-    parser.add_argument('file', help="Data file to read")
+    parser.add_argument('file', help="Data file to read, or - for stdin")
     parser.add_argument('--max-rows', type=int, default=50000)
     parser.add_argument('--sample-rows', type=int, default=10)
     parser.add_argument('--top-values', type=int, default=5)
@@ -32,16 +30,17 @@ def main():
     parser.add_argument('--max-chars', '--max-output-chars', dest='max_chars', type=int, default=12000)
     args = parser.parse_args()
 
-    if args.file.lower().endswith('.xlsx'):
+    if args.file != '-' and args.file.lower().endswith('.xlsx'):
         print("Excel files (.xlsx) not supported without dependencies. Export to CSV.")
         return
 
     output = []
-    ext = os.path.splitext(args.file)[1].lower()
+    ext = os.path.splitext(args.file)[1].lower() if args.file != '-' else '.csv'
     
     try:
         if ext in ('.jsonl', '.ndjson'):
-            with open(args.file, 'r', encoding='utf-8', errors='ignore') as f:
+            source = sys.stdin if args.file == '-' else open(args.file, 'r', encoding='utf-8', errors='ignore')
+            with source as f:
                 rows = []
                 keys = Counter()
                 parsed_rows = 0
@@ -52,7 +51,7 @@ def main():
                             row = json.loads(line)
                             parsed_rows += 1
                             if len(rows) < args.sample_rows:
-                                rows.append(row)
+                                rows.append(redact_obj(row))
                             if isinstance(row, dict):
                                 keys.update(row.keys())
                         except json.JSONDecodeError:
@@ -64,9 +63,10 @@ def main():
                 output.append(f"Keys found: {[k for k, _ in keys.most_common(args.max_columns)]}")
                 output.append("Sample Objects:")
                 for row in rows[:args.sample_rows]:
-                    output.append(json.dumps(row, indent=2)[:1000])
+                    output.append(truncate_line(json.dumps(row, indent=2), 1000))
         else:
-            with open(args.file, 'r', encoding='utf-8', errors='ignore') as f:
+            source = StringIO(sys.stdin.read()) if args.file == '-' else open(args.file, 'r', encoding='utf-8', errors='ignore')
+            with source as f:
                 sample = f.read(4096)
                 f.seek(0)
                 
@@ -92,7 +92,8 @@ def main():
                         rows.append(r)
                     for idx, v in enumerate(r[:args.max_columns]):
                         if idx < len(value_counts) and len(value_counts[idx]) <= args.top_values * 4:
-                            value_counts[idx][v] += 1
+                            header = headers[idx] if idx < len(headers) else ""
+                            value_counts[idx]["****" if is_sensitive_key(header) else redact_text(v)] += 1
                     
             output.append(f"CSV/TSV File: {args.file}")
             output.append(f"Delimiter: {repr(dialect.delimiter)}")
@@ -104,7 +105,8 @@ def main():
                 for row_num, row in enumerate(rows[:args.sample_rows], 1):
                     output.append(f"  Row {row_num}:")
                     for h, v in zip(headers[:args.max_columns], row[:args.max_columns]):
-                        output.append(f"    {h}: {truncate(v, 100)}")
+                        safe_value = "****" if is_sensitive_key(h) else redact_text(v)
+                        output.append(f"    {h}: {truncate_line(safe_value, 100)}")
                 if args.top_values > 0:
                     output.append("\nTop Values:")
                     for h, counts in zip(headers[:args.max_columns], value_counts):

@@ -6,8 +6,10 @@ RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Zozi96/agents-toolkit/ma
 FILES=(
   "AGENTS.md"
   "install-agents.sh"
+  "scripts/_agent_utils.py"
   "scripts/compact_logs.py"
   "scripts/repo_map.py"
+  "scripts/safe_read.py"
   "scripts/scan_errors.py"
   "scripts/summarize_data.py"
   "scripts/summarize_json.py"

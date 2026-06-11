@@ -68,4 +68,5 @@ $raw = "https://raw.githubusercontent.com/Zozi96/agents-toolkit/main"
 
 - Antigravity global rules use `~/.gemini/GEMINI.md`.
 - Antigravity shared skills are separate from these Python helpers.
-- Python helpers are plain scripts used by the global rules to reduce token waste when inspecting repos, logs, test output, JSON, CSV, TSV, JSONL, and NDJSON.
+- Python helpers are plain scripts used by the global rules to reduce token waste when inspecting repos, files, logs, test output, JSON, CSV, TSV, JSONL, and NDJSON.
+- `safe_read.py` reads targeted line ranges, tails, heads, or search snippets with secret redaction by default.
