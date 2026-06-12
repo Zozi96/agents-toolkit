@@ -8,6 +8,7 @@ FILES=(
   "install-agents.sh"
   "scripts/_agent_utils.py"
   "scripts/compact_logs.py"
+  "scripts/diff_summary.py"
   "scripts/repo_map.py"
   "scripts/safe_read.py"
   "scripts/scan_errors.py"

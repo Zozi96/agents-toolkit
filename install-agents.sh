@@ -102,9 +102,10 @@ install_file "$AGENTS_SRC" "${HOME}/.gemini/GEMINI.md"
 
 run mkdir -p "${HOME}/.agents/scripts"
 for helper in "$SCRIPTS_SRC"/*.py; do
-  install_file "$helper" "${HOME}/.agents/scripts/$(basename "$helper")"
+  helper_dest="${HOME}/.agents/scripts/$(basename "$helper")"
+  install_file "$helper" "$helper_dest"
+  run chmod +x "$helper_dest"
 done
-run chmod +x "${HOME}/.agents/scripts/"*.py
 
 log "Done."
 log "Antigravity global rules installed at ~/.gemini/GEMINI.md; shared Antigravity skills use a separate path."

@@ -1,0 +1,217 @@
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PYTHON = sys.executable
+
+
+def run_script(script, *args, input_text=None, cwd=ROOT):
+    return subprocess.run(
+        [PYTHON, str(ROOT / "scripts" / script), *args],
+        input=input_text,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        check=False,
+    )
+
+
+def git(repo, *args):
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+
+def init_repo(path):
+    git(path, "init")
+    git(path, "config", "user.email", "test@example.invalid")
+    git(path, "config", "user.name", "Test User")
+    (path / "file.txt").write_text("old\n", encoding="utf-8")
+    git(path, "add", "file.txt")
+    git(path, "commit", "-m", "initial")
+
+
+class ScriptSmokeTests(unittest.TestCase):
+    def test_safe_read_redacts_and_marks_matches(self):
+        result = run_script(
+            "safe_read.py",
+            "-",
+            "--find",
+            "ERROR",
+            "--context",
+            "1",
+            input_text="ok\nERROR password=abc123\nafter\n",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("   1: ok", result.stdout)
+        self.assertIn(">> 2: ERROR password=****", result.stdout)
+        self.assertNotIn("abc123", result.stdout)
+
+    def test_scan_errors_stdin_context(self):
+        result = run_script(
+            "scan_errors.py",
+            "-",
+            "--context",
+            "1",
+            input_text="ok\nERROR token=abc123\nafter\n",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Scanned 1 files. Found 1 matches.", result.stdout)
+        self.assertIn("--- stdin ---", result.stdout)
+        self.assertIn(">> 2: ERROR token=****", result.stdout)
+        self.assertNotIn("abc123", result.stdout)
+
+    def test_compact_logs_stdin_context(self):
+        result = run_script(
+            "compact_logs.py",
+            "-",
+            "--keyword",
+            "error",
+            "--context",
+            "1",
+            input_text="info token=abc123\nerror crash\nafter\n",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Scanned 1 files. Found 1 matches.", result.stdout)
+        self.assertIn("   1: info token=****", result.stdout)
+        self.assertIn(">> 2: error crash", result.stdout)
+        self.assertNotIn("abc123", result.stdout)
+
+    def test_summarize_tests_streams_failure_context(self):
+        result = run_script(
+            "summarize_tests.py",
+            "-",
+            "--context",
+            "1",
+            input_text="pytest\nsetup\nFAILED test_example.py::test_it\nExpected 1\n",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Probable Framework: pytest", result.stdout)
+        self.assertIn("Total Lines Parsed: 4", result.stdout)
+        self.assertIn(">> 3: FAILED test_example.py::test_it", result.stdout)
+
+    def test_summarize_json_redacts_and_limits_input(self):
+        result = run_script(
+            "summarize_json.py",
+            "-",
+            "--show-values",
+            input_text='{"token":"abc123","items":[{"name":"one"}]}',
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("token: ****", result.stdout)
+        self.assertIn("name: one", result.stdout)
+        self.assertNotIn("abc123", result.stdout)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "large.json"
+            path.write_text('{"ok": true}', encoding="utf-8")
+            limited = run_script("summarize_json.py", str(path), "--max-input-mb", "0")
+            self.assertIn("Use --force", limited.stdout)
+
+    def test_summarize_data_reports_invalid_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "data.jsonl"
+            path.write_text('{"a":1}\nnot-json\n{"password":"secret"}\n', encoding="utf-8")
+            result = run_script("summarize_data.py", str(path))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Parsed Rows: 2", result.stdout)
+        self.assertIn("Invalid JSON Lines Skipped: 1", result.stdout)
+        self.assertNotIn("secret", result.stdout)
+
+    def test_repo_map_is_deterministic_and_ignores_heavy_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "b.py").write_text("print('b')\n", encoding="utf-8")
+            (base / "a.py").write_text("print('a')\n", encoding="utf-8")
+            (base / "node_modules").mkdir()
+            (base / "node_modules" / "ignored.js").write_text("x\n", encoding="utf-8")
+
+            first = run_script("repo_map.py", str(base), "--max-output-chars", "12000")
+            second = run_script("repo_map.py", str(base), "--max-output-chars", "12000")
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.stdout, second.stdout)
+        self.assertLess(first.stdout.index("a.py"), first.stdout.index("b.py"))
+        self.assertNotIn("ignored.js", first.stdout)
+
+    def test_diff_summary_reports_working_tree_and_redacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "file.txt").write_text("old\npassword=abc123\n", encoding="utf-8")
+            (repo / "staged.txt").write_text("staged\n", encoding="utf-8")
+            git(repo, "add", "staged.txt")
+            (repo / "note.txt").write_text("api_token=abc123\n", encoding="utf-8")
+
+            result = run_script("diff_summary.py", str(repo), "--max-output-chars", "12000")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Mode: working tree", result.stdout)
+        self.assertIn("staged.txt", result.stdout)
+        self.assertIn("file.txt", result.stdout)
+        self.assertIn("note.txt", result.stdout)
+        self.assertIn("password=****", result.stdout)
+        self.assertIn("api_token=****", result.stdout)
+        self.assertNotIn("abc123", result.stdout)
+
+    def test_diff_summary_staged_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "file.txt").write_text("changed\n", encoding="utf-8")
+            (repo / "staged.txt").write_text("staged\n", encoding="utf-8")
+            git(repo, "add", "staged.txt")
+            (repo / "note.txt").write_text("untracked\n", encoding="utf-8")
+
+            result = run_script("diff_summary.py", str(repo), "--staged")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("staged.txt", result.stdout)
+        self.assertNotIn("file.txt", result.stdout)
+        self.assertNotIn("note.txt", result.stdout)
+
+    def test_diff_summary_no_untracked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "note.txt").write_text("untracked\n", encoding="utf-8")
+
+            result = run_script("diff_summary.py", str(repo), "--no-untracked")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("note.txt", result.stdout)
+        self.assertIn("(none)", result.stdout)
+
+    def test_diff_summary_base_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "file.txt").write_text("old\nnew\n", encoding="utf-8")
+            git(repo, "add", "file.txt")
+            git(repo, "commit", "-m", "change file")
+
+            result = run_script("diff_summary.py", str(repo), "--base", "HEAD~1", "--no-untracked")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Mode: base comparison (HEAD~1...HEAD)", result.stdout)
+        self.assertIn("file.txt", result.stdout)
+        self.assertIn("+1 -0", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

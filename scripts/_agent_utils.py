@@ -5,7 +5,13 @@ from __future__ import annotations
 
 import os
 import re
+import sys
+from collections import deque
+from contextlib import contextmanager, nullcontext
 from typing import Iterable, Iterator, Optional
+
+DEFAULT_MAX_CHARS = 12000
+DEFAULT_LINE_WIDTH = 240
 
 DEFAULT_IGNORE_DIRS = {
     "node_modules", ".venv", "venv", "env", "dist", "build", "coverage",
@@ -50,14 +56,14 @@ PRIVATE_KEY_RE = re.compile(
 )
 
 
-def truncate(text: object, max_chars: int = 12000) -> str:
+def truncate(text: object, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     value = str(text)
     if len(value) > max_chars:
         return value[:max_chars] + "\n...[TRUNCATED]"
     return value
 
 
-def truncate_line(line: object, length: int = 240) -> str:
+def truncate_line(line: object, length: int = DEFAULT_LINE_WIDTH) -> str:
     value = str(line)
     return value if len(value) <= length else value[:length] + "..."
 
@@ -73,6 +79,118 @@ def redact_text(text: object) -> str:
     for pattern, replacement in SECRET_LINE_PATTERNS:
         value = pattern.sub(replacement, value)
     return value
+
+
+def format_snippet_line(
+    line_no: int,
+    line: str,
+    *,
+    line_width: int = DEFAULT_LINE_WIDTH,
+    match: bool = False,
+    line_numbers: bool = True,
+    show_secrets: bool = False,
+) -> str:
+    text = line.rstrip("\n")
+    if not show_secrets:
+        text = redact_text(text)
+    text = truncate_line(text, line_width)
+    if not line_numbers:
+        return text
+    marker = ">>" if match else "  "
+    return f"{marker} {line_no}: {text}"
+
+
+def collect_match_snippets(
+    numbered_lines: Iterable[tuple[int, str]],
+    matches_line,
+    *,
+    context: int = 0,
+    limit: int = 50,
+    line_width: int = DEFAULT_LINE_WIDTH,
+    line_numbers: bool = True,
+    show_secrets: bool = False,
+) -> list[list[str]]:
+    if limit <= 0:
+        return []
+
+    snippets: list[list[str]] = []
+    previous: deque[tuple[int, str]] = deque(maxlen=context)
+    after_remaining = 0
+    active: list[str] = []
+
+    for line_no, line in numbered_lines:
+        if after_remaining > 0:
+            active.append(
+                format_snippet_line(
+                    line_no,
+                    line,
+                    line_width=line_width,
+                    line_numbers=line_numbers,
+                    show_secrets=show_secrets,
+                )
+            )
+            after_remaining -= 1
+            if after_remaining == 0:
+                snippets.append(active)
+                active = []
+                if len(snippets) >= limit:
+                    break
+            previous.append((line_no, line))
+            continue
+
+        if matches_line(line):
+            active = [
+                format_snippet_line(
+                    prev_no,
+                    prev_line,
+                    line_width=line_width,
+                    line_numbers=line_numbers,
+                    show_secrets=show_secrets,
+                )
+                for prev_no, prev_line in previous
+            ]
+            active.append(
+                format_snippet_line(
+                    line_no,
+                    line,
+                    line_width=line_width,
+                    match=True,
+                    line_numbers=line_numbers,
+                    show_secrets=show_secrets,
+                )
+            )
+            after_remaining = context
+            if after_remaining == 0:
+                snippets.append(active)
+                active = []
+                if len(snippets) >= limit:
+                    break
+            previous.clear()
+        else:
+            previous.append((line_no, line))
+
+    if active and len(snippets) < limit:
+        snippets.append(active)
+    return snippets
+
+
+@contextmanager
+def open_text_source(path: str):
+    if path == "-":
+        with nullcontext(sys.stdin) as source:
+            yield source
+        return
+    with open(path, "r", encoding="utf-8", errors="ignore") as source:
+        yield source
+
+
+def numbered_lines(lines: Iterable[str]) -> Iterator[tuple[int, str]]:
+    for idx, line in enumerate(lines, 1):
+        yield idx, line
+
+
+def compact_error(path: str, exc: BaseException) -> str:
+    return truncate_line(redact_text(f"{path}: {exc}"), DEFAULT_LINE_WIDTH)
 
 
 def redact_obj(value: object, max_string: int = 120) -> object:

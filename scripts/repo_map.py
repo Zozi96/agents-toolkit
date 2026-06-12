@@ -48,6 +48,8 @@ def main():
     file_list = []
     
     for root, dirs, files in os.walk(base_path):
+        dirs.sort()
+        files.sort()
         rel_root = os.path.relpath(root, base_path)
         if rel_root == '.':
             depth = 0
@@ -86,7 +88,7 @@ def main():
             except Exception:
                 pass
 
-    for f in file_list:
+    for f in sorted(file_list):
         for stack, indicators in STACK_INDICATORS.items():
             for ind in indicators:
                 if any(ch in ind for ch in '*?['):

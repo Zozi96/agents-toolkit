@@ -11,11 +11,16 @@ Examples:
 
 import argparse
 from collections import deque
-import os
 import re
-import sys
 
-from _agent_utils import iter_text_files, redact_text, truncate, truncate_line
+from _agent_utils import (
+    collect_match_snippets,
+    compact_error,
+    iter_text_files,
+    numbered_lines,
+    open_text_source,
+    truncate,
+)
 
 def main():
     parser = argparse.ArgumentParser(description="Compact and filter logs.")
@@ -51,69 +56,41 @@ def main():
 
     for filepath in files_to_scan:
         try:
-            if filepath == '-':
-                lines = sys.stdin
-                close_lines = None
-            elif args.tail > 0:
+            def line_matches(line):
+                line_to_check = line if args.case_sensitive else line.lower()
+                if args.keyword:
+                    if args.all_keywords and not all(k in line_to_check for k in keywords):
+                        return False
+                    if not args.all_keywords and not any(k in line_to_check for k in keywords):
+                        return False
+                if args.level and not any(l in line_to_check for l in levels):
+                    return False
+                if compiled_regex and not compiled_regex.search(line):
+                    return False
+                return True
+
+            if filepath != '-' and args.tail > 0:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                     lines = list(deque(f, maxlen=args.tail))
-                close_lines = None
+                snippets = collect_match_snippets(
+                    numbered_lines(lines),
+                    line_matches,
+                    context=args.context,
+                    limit=args.limit - len(matches),
+                    line_width=args.line_width,
+                )
             else:
-                lines = open(filepath, 'r', encoding='utf-8', errors='ignore')
-                close_lines = lines
-
-            previous = deque(maxlen=args.context)
-            after_remaining = 0
-            active_context = []
-            try:
-                for line in lines:
-                    line_to_check = line if args.case_sensitive else line.lower()
-
-                    if after_remaining > 0:
-                        active_context.append(truncate_line(redact_text(line.rstrip()), args.line_width))
-                        after_remaining -= 1
-                        if after_remaining == 0:
-                            matches.append((filepath, "\n".join(active_context)))
-                            active_context = []
-                            if len(matches) >= args.limit:
-                                break
-                        previous.append(line.rstrip())
-                        continue
-
-                    if args.keyword:
-                        if args.all_keywords:
-                            if not all(k in line_to_check for k in keywords):
-                                previous.append(line.rstrip())
-                                continue
-                        elif not any(k in line_to_check for k in keywords):
-                            previous.append(line.rstrip())
-                            continue
-
-                    if args.level and not any(l in line_to_check for l in levels):
-                        previous.append(line.rstrip())
-                        continue
-
-                    if compiled_regex and not compiled_regex.search(line):
-                        previous.append(line.rstrip())
-                        continue
-
-                    active_context = [truncate_line(redact_text(prev_line), args.line_width) for prev_line in previous]
-                    active_context.append(truncate_line(redact_text(line.rstrip()), args.line_width))
-                    after_remaining = args.context
-                    if after_remaining == 0:
-                        matches.append((filepath, "\n".join(active_context)))
-                        active_context = []
-                        if len(matches) >= args.limit:
-                            break
-                    previous.clear()
-
-                if active_context and len(matches) < args.limit:
-                    matches.append((filepath, "\n".join(active_context)))
-            finally:
-                if close_lines:
-                    close_lines.close()
-        except Exception:
-            pass
+                with open_text_source(filepath) as source:
+                    snippets = collect_match_snippets(
+                        numbered_lines(source),
+                        line_matches,
+                        context=args.context,
+                        limit=args.limit - len(matches),
+                        line_width=args.line_width,
+                    )
+            matches.extend((filepath, "\n".join(snippet)) for snippet in snippets)
+        except Exception as exc:
+            matches.append((filepath, f"Skipped unreadable file: {compact_error(filepath, exc)}"))
         if len(matches) >= args.limit: break
 
     output = [f"Scanned {len(files_to_scan)} files. Found {len(matches)} matches."]

@@ -12,12 +12,18 @@ Examples:
 """
 
 import argparse
-from collections import deque
 import os
 import re
-import sys
 
-from _agent_utils import iter_text_files, normalize_exts, redact_text, truncate, truncate_line
+from _agent_utils import (
+    collect_match_snippets,
+    compact_error,
+    iter_text_files,
+    normalize_exts,
+    numbered_lines,
+    open_text_source,
+    truncate,
+)
 
 DEFAULT_PATTERNS = [
     'ERROR', 'Exception', 'Traceback', 'Failed', 'Failure', 'Fatal', 'Panic',
@@ -64,56 +70,29 @@ def main():
 
     total_scanned = 0
     matches = []
+    skipped = []
     
     for filepath in files_to_scan:
         try:
             total_scanned += 1
-
-            previous = deque(maxlen=args.context)
-            after_remaining = 0
-            active_context = []
-            source = sys.stdin if filepath == '-' else open(filepath, 'r', encoding='utf-8', errors='ignore')
-            with source as f:
-                for i, line in enumerate(f):
-                    line_no = i + 1
-                    if after_remaining > 0:
-                        active_context.append(f"   {line_no}: {truncate_line(redact_text(line.rstrip()), args.line_width)}")
-                        after_remaining -= 1
-                        if after_remaining == 0:
-                            rel = "stdin" if filepath == '-' else os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
-                            matches.append((rel, "\n".join(active_context)))
-                            active_context = []
-                            if len(matches) >= args.limit:
-                                break
-                        previous.append((line_no, line.rstrip()))
-                        continue
-
-                    if any(r.search(line) for r in regexes):
-                        active_context = [
-                            f"   {n}: {truncate_line(redact_text(prev_line), args.line_width)}"
-                            for n, prev_line in previous
-                        ]
-                        active_context.append(f">> {line_no}: {truncate_line(redact_text(line.rstrip()), args.line_width)}")
-                        after_remaining = args.context
-                        if after_remaining == 0:
-                            rel = "stdin" if filepath == '-' else os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
-                            matches.append((rel, "\n".join(active_context)))
-                            active_context = []
-                            if len(matches) >= args.limit:
-                                break
-                        previous.clear()
-                    else:
-                        previous.append((line_no, line.rstrip()))
-
-            if active_context and len(matches) < args.limit:
-                rel = "stdin" if filepath == '-' else os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
-                matches.append((rel, "\n".join(active_context)))
-        except Exception:
-            pass
+            rel = "stdin" if filepath == '-' else os.path.relpath(filepath, base_path) if os.path.isdir(base_path) else os.path.basename(filepath)
+            with open_text_source(filepath) as source:
+                snippets = collect_match_snippets(
+                    numbered_lines(source),
+                    lambda line: any(r.search(line) for r in regexes),
+                    context=args.context,
+                    limit=args.limit - len(matches),
+                    line_width=args.line_width,
+                )
+            matches.extend((rel, "\n".join(snippet)) for snippet in snippets)
+        except Exception as exc:
+            skipped.append(compact_error(filepath, exc))
         if len(matches) >= args.limit:
             break
 
     output = [f"Scanned {total_scanned} files. Found {len(matches)} matches."]
+    if skipped:
+        output.append(f"Skipped {len(skipped)} unreadable files. First: {skipped[0]}")
     current_file = None
     for filepath, content in matches:
         if filepath != current_file:

@@ -19,7 +19,7 @@ import os
 import re
 import sys
 
-from _agent_utils import redact_text, truncate, truncate_line
+from _agent_utils import collect_match_snippets, redact_text, truncate, truncate_line
 
 
 def emit_line(line_no: int, line: str, args: argparse.Namespace) -> str:
@@ -90,40 +90,21 @@ def select_matches(args: argparse.Namespace):
         except re.error as exc:
             return [f"Invalid regex: {exc}"]
 
+    snippets = collect_match_snippets(
+        iter_source(args),
+        lambda line: any(pattern.search(line) for pattern in patterns),
+        context=args.context,
+        limit=args.max_lines,
+        line_width=args.line_width,
+        line_numbers=not args.no_line_numbers,
+        show_secrets=args.show_secrets,
+    )
     results = []
-    previous = deque(maxlen=args.context)
-    after = 0
-    active = []
-
-    for line_no, line in iter_source(args):
-        if after > 0:
-            active.append(emit_line(line_no, line, args))
-            after -= 1
-            if after == 0:
-                results.extend(active)
-                results.append("")
-                active = []
-                if len(results) >= args.max_lines:
-                    break
-            previous.append((line_no, line))
-            continue
-
-        if any(pattern.search(line) for pattern in patterns):
-            active = [emit_line(prev_no, prev_line, args) for prev_no, prev_line in previous]
-            active.append(emit_line(line_no, line, args))
-            after = args.context
-            if after == 0:
-                results.extend(active)
-                results.append("")
-                active = []
-                if len(results) >= args.max_lines:
-                    break
-            previous.clear()
-        else:
-            previous.append((line_no, line))
-
-    if active and len(results) < args.max_lines:
-        results.extend(active)
+    for snippet in snippets:
+        results.extend(snippet)
+        results.append("")
+        if len(results) >= args.max_lines:
+            break
     return results[:args.max_lines]
 
 

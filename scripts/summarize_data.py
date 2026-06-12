@@ -44,6 +44,7 @@ def main():
                 rows = []
                 keys = Counter()
                 parsed_rows = 0
+                invalid_rows = 0
                 for i, line in enumerate(f):
                     if i >= args.max_rows: break
                     if line.strip():
@@ -55,10 +56,12 @@ def main():
                             if isinstance(row, dict):
                                 keys.update(row.keys())
                         except json.JSONDecodeError:
-                            pass
+                            invalid_rows += 1
             
             output.append(f"JSONL/NDJSON File: {args.file}")
             output.append(f"Parsed Rows: {parsed_rows}")
+            if invalid_rows:
+                output.append(f"Invalid JSON Lines Skipped: {invalid_rows}")
             if rows:
                 output.append(f"Keys found: {[k for k, _ in keys.most_common(args.max_columns)]}")
                 output.append("Sample Objects:")
@@ -77,7 +80,7 @@ def main():
                 else:
                     try:
                         dialect = csv.Sniffer().sniff(sample)
-                    except:
+                    except csv.Error:
                         dialect = csv.excel()
                 
                 reader = csv.reader(f, dialect)

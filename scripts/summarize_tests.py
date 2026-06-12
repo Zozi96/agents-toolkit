@@ -10,11 +10,10 @@ Examples:
 """
 
 import argparse
-from collections import deque
 import sys
 import re
 
-from _agent_utils import redact_text, truncate, truncate_line
+from _agent_utils import collect_match_snippets, numbered_lines, truncate
 
 def main():
     parser = argparse.ArgumentParser(description="Summarize test outputs.")
@@ -37,15 +36,12 @@ def main():
             return
 
     framework = "Unknown"
-    failures = []
     fail_regex = re.compile(r'(FAIL|FAILED|ERROR|Exception|Error:|Expected|Received)', re.IGNORECASE)
     total_lines = 0
-    previous = deque(maxlen=args.context)
-    after_remaining = 0
-    active_snippet = None
 
-    try:
-        for line in source:
+    def iter_test_lines():
+        nonlocal framework, total_lines
+        for line_no, line in numbered_lines(source):
             total_lines += 1
             low = line.lower()
             if framework == "Unknown":
@@ -53,36 +49,19 @@ def main():
                 elif "vitest" in low: framework = "vitest"
                 elif "jest" in low: framework = "jest"
                 elif "dotnet test" in low or "xunit" in low or "nunit" in low: framework = "dotnet"
+            yield line_no, line
 
-            if after_remaining > 0:
-                active_snippet.append(truncate_line(redact_text(line.rstrip()), args.line_width))
-                after_remaining -= 1
-                if after_remaining == 0:
-                    failures.append(active_snippet)
-                    active_snippet = None
-                    if len(failures) >= args.limit:
-                        break
-                previous.append(line.rstrip())
-                continue
-
-            if fail_regex.search(line):
-                active_snippet = [truncate_line(redact_text(prev), args.line_width) for prev in previous]
-                active_snippet.append(truncate_line(redact_text(line.rstrip()), args.line_width))
-                after_remaining = args.context
-                if after_remaining == 0:
-                    failures.append(active_snippet)
-                    active_snippet = None
-                    if len(failures) >= args.limit:
-                        break
-                previous.clear()
-            else:
-                previous.append(line.rstrip())
+    try:
+        failures = collect_match_snippets(
+            iter_test_lines(),
+            lambda line: bool(fail_regex.search(line)),
+            context=args.context,
+            limit=args.limit,
+            line_width=args.line_width,
+        )
     finally:
         if close_source:
             source.close()
-
-    if active_snippet and len(failures) < args.limit:
-        failures.append(active_snippet)
 
     output = [f"Probable Framework: {framework}", f"Total Lines Parsed: {total_lines}"]
     

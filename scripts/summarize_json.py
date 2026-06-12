@@ -12,10 +12,11 @@ Examples:
 import argparse
 import sys
 import json
+import os
 
-from _agent_utils import is_sensitive_key, redact_text, truncate_line
+from _agent_utils import is_sensitive_key, redact_text, truncate, truncate_line
 
-def summarize_data(data, args, depth=0):
+def summarize_json_value(data, args, depth=0):
     indent = "  " * depth
     if depth > args.max_depth:
         return f"{indent}... (max depth {args.max_depth} reached)"
@@ -25,7 +26,7 @@ def summarize_data(data, args, depth=0):
         for i, (k, v) in enumerate(list(data.items())[:args.max_keys]):
             if isinstance(v, (dict, list)):
                 lines.append(f"{indent}  {k}: {type(v).__name__}")
-                lines.append(summarize_data(v, args, depth + 1))
+                lines.append(summarize_json_value(v, args, depth + 1))
             else:
                 val = "****" if is_sensitive_key(k) else (truncate_line(redact_text(v), 50) if args.show_values else type(v).__name__)
                 lines.append(f"{indent}  {k}: {val}")
@@ -37,7 +38,7 @@ def summarize_data(data, args, depth=0):
         lines = [f"{indent}Array of length {len(data)}:"]
         for idx, item in enumerate(data[:args.sample_size]):
             lines.append(f"{indent}  [{idx}]:")
-            lines.append(summarize_data(item, args, depth + 1))
+            lines.append(summarize_json_value(item, args, depth + 1))
         if len(data) > args.sample_size:
             lines.append(f"{indent}  ... and {len(data) - args.sample_size} more items")
         return "\n".join(lines)
@@ -51,7 +52,9 @@ def main():
     parser.add_argument('--sample-size', type=int, default=3)
     parser.add_argument('--max-keys', type=int, default=50)
     parser.add_argument('--max-chars', '--max-output-chars', dest='max_chars', type=int, default=12000)
+    parser.add_argument('--max-input-mb', type=float, default=10.0)
     parser.add_argument('--show-values', action='store_true')
+    parser.add_argument('--force', action='store_true')
     args = parser.parse_args()
 
     content = ""
@@ -59,6 +62,10 @@ def main():
         content = sys.stdin.read()
     else:
         try:
+            size_mb = os.path.getsize(args.file) / (1024 * 1024)
+            if size_mb > args.max_input_mb and not args.force:
+                print(f"Skipped {args.file}: {size_mb:.2f} MB > --max-input-mb {args.max_input_mb}. Use --force for targeted summary.")
+                return
             with open(args.file, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
         except Exception as e:
@@ -71,10 +78,8 @@ def main():
         print(f"Failed to parse JSON: {e}")
         return
 
-    summary = summarize_data(data, args)
-    if len(summary) > args.max_chars:
-        summary = summary[:args.max_chars] + "\n...[TRUNCATED OVERALL OUTPUT]"
-    print(summary)
+    summary = summarize_json_value(data, args)
+    print(truncate(summary, args.max_chars))
 
 if __name__ == "__main__":
     main()
