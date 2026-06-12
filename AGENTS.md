@@ -22,14 +22,12 @@ Follow this order:
 
 ## Private Workspace Policy
 
-All personal automation, token-saving helpers, repo maps, handoffs, notes, summaries, temporary outputs, and large command outputs must stay outside project repositories unless the user explicitly requests otherwise.
+All personal automation, token-saving helpers, repo maps, notes, summaries, temporary outputs, and large command outputs must stay outside project repositories unless the user explicitly requests otherwise.
 
 Use `~/.agents/scripts` for reusable helper scripts.
-Use `~/.codex/handoffs` for private project handoff notes.
 Use `~/.codex/tmp` for temporary command outputs, summaries, and scratch files.
 
 Do not create these inside repositories by default:
-* `HANDOFF.md`
 * `repo_map.txt`
 * `codex-notes.md`
 * `temp_results.txt`
@@ -205,30 +203,6 @@ Do not create helper scripts inside repositories unless explicitly requested.
 * redact secrets by default;
 * avoid modifying repository files;
 * fail with concise, actionable errors.
-
-## Private Handoff Rules
-
-Maintain project handoffs privately under: `~/.codex/handoffs/`
-Use one handoff per project when useful: `~/.codex/handoffs/<project-name>.md`
-
-**Use handoffs when:**
-* the user asks to compact context;
-* the task is long-running;
-* there are important decisions to preserve;
-* avoiding re-reading files would save substantial context.
-
-**When updating a handoff, include only:**
-* current goal
-* success criteria
-* key files
-* recent decisions
-* commands already run and short outcomes
-* known issues
-* do-not-re-read list
-* next steps
-
-Keep handoffs concise and actionable, ideally under 1,000 tokens.
-Do not create `HANDOFF.md` inside repositories unless explicitly requested.
 
 ## Project Change Rules
 
