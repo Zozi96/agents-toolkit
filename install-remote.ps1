@@ -14,6 +14,7 @@ $files = @(
     "AGENTS.md",
     "install-agents.ps1",
     "scripts/_agent_utils.py",
+    "scripts/agent_context.py",
     "scripts/compact_logs.py",
     "scripts/diff_summary.py",
     "scripts/repo_map.py",

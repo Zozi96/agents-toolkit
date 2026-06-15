@@ -26,6 +26,35 @@ STACK_INDICATORS = {
     'DB/ORM': ['prisma/schema.prisma', 'migrations', 'alembic', 'sequelize', 'typeorm']
 }
 
+EXTENSION_STACKS = {
+    '.py': 'Python',
+    '.js': 'JavaScript/TypeScript',
+    '.jsx': 'JavaScript/TypeScript',
+    '.ts': 'JavaScript/TypeScript',
+    '.tsx': 'JavaScript/TypeScript',
+    '.cs': '.NET',
+    '.fs': '.NET',
+    '.rs': 'Rust',
+    '.go': 'Go',
+    '.sh': 'Shell scripts',
+    '.ps1': 'PowerShell scripts',
+}
+
+KEY_FILES = {
+    'AGENTS.md', 'CLAUDE.md', 'README.md', 'README', 'pyproject.toml',
+    'package.json', 'Cargo.toml', 'go.mod', 'requirements.txt', 'Dockerfile',
+    'docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml',
+}
+
+
+def file_rank(path):
+    name = os.path.basename(path)
+    if name in KEY_FILES or path in KEY_FILES:
+        return (0, path.count(os.sep), path)
+    if path.startswith(('src/', 'scripts/', 'tests/', 'test/')):
+        return (1, path.count(os.sep), path)
+    return (2, path.count(os.sep), path)
+
 def main():
     parser = argparse.ArgumentParser(description="Create a compact repository map.")
     parser.add_argument('path', nargs='?', default='.', help="Repository path")
@@ -96,11 +125,14 @@ def main():
                         stack_detected.add(stack)
                 elif f == ind or f.endswith('/' + ind):
                     stack_detected.add(stack)
-                    
-    output.append(f"\nStack Detected: {', '.join(stack_detected) if stack_detected else 'Unknown'}")
-    
+        stack = EXTENSION_STACKS.get(os.path.splitext(f)[1].lower())
+        if stack:
+            stack_detected.add(stack)
+                     
+    output.append(f"\nStack Detected: {', '.join(sorted(stack_detected)) if stack_detected else 'Unknown'}")
+     
     output.append("\nTop Key Files:")
-    for f in file_list[:args.max_files]:
+    for f in sorted(file_list, key=file_rank)[:args.max_files]:
         output.append(f"  {f}")
         
     output.append("\nFile Extension Counts:")

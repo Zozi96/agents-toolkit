@@ -41,6 +41,9 @@ def init_repo(path):
 
 
 class ScriptSmokeTests(unittest.TestCase):
+    def test_agents_rules_stay_compact(self):
+        self.assertLessEqual((ROOT / "AGENTS.md").stat().st_size, 3500)
+
     def test_safe_read_redacts_and_marks_matches(self):
         result = run_script(
             "safe_read.py",
@@ -148,6 +151,22 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(first.stdout, second.stdout)
         self.assertLess(first.stdout.index("a.py"), first.stdout.index("b.py"))
         self.assertNotIn("ignored.js", first.stdout)
+        self.assertIn("Stack Detected: Python", first.stdout)
+
+    def test_agent_context_reports_repo_and_git_without_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "note.txt").write_text("api_token=abc123\n", encoding="utf-8")
+
+            result = run_script("agent_context.py", str(repo), "--max-output-chars", "12000")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Agent Context:", result.stdout)
+        self.assertIn("Repository Map", result.stdout)
+        self.assertIn("Git Diff Summary", result.stdout)
+        self.assertIn("note.txt", result.stdout)
+        self.assertNotIn("abc123", result.stdout)
 
     def test_diff_summary_reports_working_tree_and_redacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -167,6 +186,24 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("note.txt", result.stdout)
         self.assertIn("password=****", result.stdout)
         self.assertIn("api_token=****", result.stdout)
+        self.assertNotIn("abc123", result.stdout)
+
+    def test_diff_summary_omits_generated_binary_untracked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            cache = repo / "__pycache__"
+            cache.mkdir()
+            (cache / "ignored.pyc").write_bytes(b"\0pyc")
+            (repo / "note.txt").write_text("api_token=abc123\n", encoding="utf-8")
+
+            result = run_script("diff_summary.py", str(repo), "--max-output-chars", "12000")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("note.txt", result.stdout)
+        self.assertIn("Untracked files omitted: 1", result.stdout)
+        self.assertNotIn("__pycache__", result.stdout)
+        self.assertNotIn("ignored.pyc", result.stdout)
         self.assertNotIn("abc123", result.stdout)
 
     def test_diff_summary_staged_only(self):

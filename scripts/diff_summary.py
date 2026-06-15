@@ -17,7 +17,14 @@ import os
 import subprocess
 from dataclasses import dataclass
 
-from _agent_utils import redact_text, truncate, truncate_line
+from _agent_utils import (
+    DEFAULT_IGNORE_DIRS,
+    DEFAULT_IGNORE_EXTS,
+    is_binary_file,
+    redact_text,
+    truncate,
+    truncate_line,
+)
 
 
 @dataclass
@@ -92,13 +99,31 @@ def tracked_changes(repo: str, diff_args: list[str], source: str) -> list[FileCh
     return list(changes.values())
 
 
-def untracked_changes(repo: str) -> list[FileChange]:
+def skip_untracked(repo: str, path: str) -> bool:
+    normalized = path.replace(os.sep, "/")
+    parts = normalized.split("/")
+    ext = os.path.splitext(path)[1].lower()
+    if ext in DEFAULT_IGNORE_EXTS:
+        return True
+    if any(part in DEFAULT_IGNORE_DIRS for part in parts):
+        return True
+    if any(ignored in DEFAULT_IGNORE_DIRS for ignored in ("/".join(parts[:idx]) for idx in range(1, len(parts) + 1))):
+        return True
+    return is_binary_file(os.path.join(repo, path))
+
+
+def untracked_changes(repo: str) -> tuple[list[FileChange], int]:
     result = run_git(repo, ["ls-files", "--others", "--exclude-standard"])
     changes = []
+    omitted = 0
     for path in result.stdout.splitlines():
-        if path:
-            changes.append(FileChange(path=path, status="??", source="untracked"))
-    return changes
+        if not path:
+            continue
+        if skip_untracked(repo, path):
+            omitted += 1
+            continue
+        changes.append(FileChange(path=path, status="??", source="untracked"))
+    return changes, omitted
 
 
 def combine_changes(groups: list[list[FileChange]], max_files: int) -> list[FileChange]:
@@ -222,6 +247,7 @@ def main() -> None:
     repo = repo_root(args.path)
     groups: list[list[FileChange]] = []
     hunk_output: list[str] = []
+    untracked_omitted = 0
     mode = "working tree"
 
     if args.base:
@@ -231,7 +257,9 @@ def main() -> None:
         groups.append(base_changes)
         hunk_output.extend(hunk_lines(repo, diff_args, "base", args.max_hunks, args.line_width))
         if not args.no_untracked:
-            groups.append(untracked_changes(repo))
+            untracked, omitted = untracked_changes(repo)
+            untracked_omitted += omitted
+            groups.append(untracked)
     else:
         staged = tracked_changes(repo, ["--cached"], "staged")
         groups.append(staged)
@@ -242,7 +270,8 @@ def main() -> None:
             remaining_hunks = max(0, args.max_hunks - len([line for line in hunk_output if line.startswith("@@ ")]))
             hunk_output.extend(hunk_lines(repo, [], "unstaged", remaining_hunks, args.line_width))
             if not args.no_untracked:
-                untracked = untracked_changes(repo)
+                untracked, omitted = untracked_changes(repo)
+                untracked_omitted += omitted
                 groups.append(untracked)
                 remaining_hunks = max(0, args.max_hunks - len([line for line in hunk_output if line.startswith("@@ ")]))
                 hunk_output.extend(untracked_preview(repo, untracked, remaining_hunks, args.line_width))
@@ -261,6 +290,8 @@ def main() -> None:
     ]
     if total_untracked:
         output.append(f"Untracked files shown: {total_untracked}")
+    if untracked_omitted:
+        output.append(f"Untracked files omitted: {untracked_omitted} (ignored/generated/binary)")
     output.extend(["", "Files:", *format_table(changes, args.line_width)])
     output.extend(["", "Largest Changes:", *format_largest(changes, args.line_width)])
     if hunk_output:

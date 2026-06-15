@@ -79,7 +79,7 @@ instead of in the runtime rules.
 
 Recommended inspection ladder:
 
-1. Map the repo before broad exploration.
+1. Get medium context with one command.
 2. Search for targeted symbols or errors.
 3. Read only the relevant file slice.
 4. Capture large outputs to `~/.codex/tmp/` and summarize them.
@@ -88,7 +88,7 @@ Recommended inspection ladder:
 Example:
 
 ```bash
-python3 ~/.agents/scripts/repo_map.py . --max-output-chars 12000
+python3 ~/.agents/scripts/agent_context.py . --max-output-chars 12000
 rg -n "symbol_or_error" . --glob '!node_modules' --glob '!.git' | head -c 12000
 python3 ~/.agents/scripts/safe_read.py path/to/file.py --start 40 --end 120
 ```
@@ -100,6 +100,7 @@ default.
 
 | Helper | Use it for |
 | --- | --- |
+| `agent_context.py` | One-command medium repo context: map + git diff summary, optional error scan. |
 | `repo_map.py` | Compact repository orientation before broad exploration. |
 | `safe_read.py` | Small redacted slices, heads, tails, and search snippets from text files or stdin. |
 | `scan_errors.py` | Finding likely failures in logs, command output, or repositories. |
@@ -112,6 +113,8 @@ default.
 Common commands:
 
 ```bash
+python3 ~/.agents/scripts/agent_context.py . --max-output-chars 12000
+python3 ~/.agents/scripts/agent_context.py . --scan-errors --max-output-chars 12000
 python3 ~/.agents/scripts/safe_read.py app.py --head 80
 python3 ~/.agents/scripts/safe_read.py server.log --find traceback --context 3
 python3 ~/.agents/scripts/scan_errors.py output.txt --context 2 --limit 30
@@ -141,6 +144,7 @@ Validate helper syntax:
 
 ```bash
 python3 -m py_compile scripts/*.py
+python3 scripts/agent_context.py . --max-output-chars 12000
 python3 scripts/diff_summary.py --max-output-chars 12000
 python3 scripts/diff_summary.py --base HEAD --max-output-chars 12000
 ```
