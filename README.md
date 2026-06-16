@@ -100,7 +100,7 @@ default.
 
 | Helper | Use it for |
 | --- | --- |
-| `agent_context.py` | One-command medium repo context: map + git diff summary, optional error scan. |
+| `agent_context.py` | One-command medium repo context: map + diff summary, optional error scan, and token-safe follow-up suggestions. |
 | `repo_map.py` | Compact repository orientation before broad exploration. |
 | `safe_read.py` | Small redacted slices, heads, tails, and search snippets from text files or stdin. |
 | `scan_errors.py` | Finding likely failures in logs, command output, or repositories. |
@@ -126,6 +126,8 @@ python3 ~/.agents/scripts/diff_summary.py --staged
 python3 ~/.agents/scripts/summarize_json.py response.json --max-depth 3 --max-input-mb 10
 python3 ~/.agents/scripts/summarize_data.py data.csv --sample-rows 5
 ```
+
+`agent_context.py` imprime `Next Token-Safe Steps` para dirigir la siguiente acción hacia lecturas pequeñas (por ejemplo `safe_read.py`) antes de ampliar el scope.
 
 `scan_errors.py`, `compact_logs.py`, and `summarize_tests.py` use consistent
 snippet markers: context lines start with spaces and match lines start with

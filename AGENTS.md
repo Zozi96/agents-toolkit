@@ -23,7 +23,7 @@ rg -n "symbol_or_error" . --glob '!node_modules' --glob '!.git' | head -c 12000
 python3 ~/.agents/scripts/safe_read.py path --start 1 --end 120
 ```
 
-5. Make minimal changes. Validate focused. Report changed paths + commands + status.
+5. Si `agent_context.py` devuelve `Next Token-Safe Steps`, ejecuta esa ruta primero y reevalúa la lectura del output antes de abrir archivos completos.
 
 ## Privacy
 

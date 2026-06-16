@@ -168,6 +168,31 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("note.txt", result.stdout)
         self.assertNotIn("abc123", result.stdout)
 
+    def test_agent_context_recommends_safe_read_for_changed_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "file.txt").write_text("old\nnew\n", encoding="utf-8")
+
+            result = run_script("agent_context.py", str(repo), "--max-output-chars", "12000")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Next Token-Safe Steps", result.stdout)
+        self.assertIn("safe_read.py", result.stdout)
+        self.assertIn("file.txt", result.stdout)
+
+    def test_agent_context_recommends_symbol_search_when_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+
+            result = run_script("agent_context.py", str(repo), "--max-output-chars", "12000")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Next Token-Safe Steps", result.stdout)
+        self.assertIn("No local file deltas detected.", result.stdout)
+        self.assertIn("rg -n \"symbol_or_error\"", result.stdout)
+
     def test_diff_summary_reports_working_tree_and_redacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
