@@ -17,13 +17,19 @@ python3 ~/.agents/scripts/agent_context.py . --max-output-chars 12000
 rg -n "symbol_or_error" . --glob '!node_modules' --glob '!.git' | head -c 12000
 ```
 
-4. Read only needed slices:
+4. Outline structure before opening files:
+
+```bash
+python3 ~/.agents/scripts/outline.py path
+```
+
+5. Read only needed slices:
 
 ```bash
 python3 ~/.agents/scripts/safe_read.py path --start 1 --end 120
 ```
 
-5. Si `agent_context.py` devuelve `Next Token-Safe Steps`, ejecuta esa ruta primero y reevalúa la lectura del output antes de abrir archivos completos.
+6. Si `agent_context.py` devuelve `Next Token-Safe Steps`, ejecuta esa ruta primero y reevalúa la lectura del output antes de abrir archivos completos.
 
 ## Privacy
 
@@ -53,9 +59,10 @@ Never revert/overwrite user changes unless explicitly asked.
 
 ## Output Discipline
 
-Cap unknown/recursive/large output:
+Cap unknown/recursive/large output. Prefer `run_capped.py` (keeps full log in `~/.codex/tmp/`):
 
 ```bash
+python3 ~/.agents/scripts/run_capped.py -- COMMAND
 COMMAND 2>&1 | head -c 6000
 ```
 
@@ -65,7 +72,9 @@ Prefer helpers before raw files:
 | --- | --- |
 | First repo context | `agent_context.py` |
 | Repo map | `repo_map.py` |
+| Code structure | `outline.py` |
 | Sensitive/large text | `safe_read.py` |
+| Big command output | `run_capped.py` |
 | Logs/errors | `scan_errors.py`, `compact_logs.py` |
 | Tests | `summarize_tests.py` |
 | Diff | `diff_summary.py` |

@@ -136,6 +136,63 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("Invalid JSON Lines Skipped: 1", result.stdout)
         self.assertNotIn("secret", result.stdout)
 
+    def test_outline_python_and_typescript(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "app.py").write_text(
+                "import os\n\nclass Widget:\n    def render(self):\n        return 1\n",
+                encoding="utf-8",
+            )
+            (base / "util.ts").write_text(
+                "export const fetchData = async (url: string) => {\n  return url;\n};\n",
+                encoding="utf-8",
+            )
+
+            result = run_script("outline.py", str(base))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("3: class Widget:", result.stdout)
+        self.assertIn("4:     def render(self):", result.stdout)
+        self.assertIn("1: export const fetchData", result.stdout)
+        self.assertNotIn("import os", result.stdout)
+        self.assertNotIn("return 1", result.stdout)
+
+    def test_run_capped_summarizes_redacts_and_keeps_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_script(
+                "run_capped.py",
+                "--log-dir",
+                tmp,
+                "--",
+                PYTHON,
+                "-c",
+                "print('start'); print('ERROR token=abc123')",
+            )
+            logs = list(Path(tmp).glob("run-*.log"))
+            log_text = logs[0].read_text(encoding="utf-8") if logs else ""
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Exit Code: 0", result.stdout)
+        self.assertIn(">> 2: ERROR token=****", result.stdout)
+        self.assertNotIn("abc123", result.stdout)
+        self.assertEqual(len(logs), 1)
+        self.assertIn("token=abc123", log_text)
+
+    def test_run_capped_propagates_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_script(
+                "run_capped.py",
+                "--log-dir",
+                tmp,
+                "--",
+                PYTHON,
+                "-c",
+                "import sys; sys.exit(3)",
+            )
+
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("Exit Code: 3", result.stdout)
+
     def test_repo_map_is_deterministic_and_ignores_heavy_dirs(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

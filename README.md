@@ -81,9 +81,10 @@ Recommended inspection ladder:
 
 1. Get medium context with one command.
 2. Search for targeted symbols or errors.
-3. Read only the relevant file slice.
-4. Capture large outputs to `~/.codex/tmp/` and summarize them.
-5. Read raw files or full logs only when the helper summary is insufficient.
+3. Outline the file structure to find the right slice.
+4. Read only the relevant file slice.
+5. Run unknown-size commands through `run_capped.py`; the full log stays in `~/.codex/tmp/`.
+6. Read raw files or full logs only when the helper summary is insufficient.
 
 Example:
 
@@ -102,6 +103,8 @@ default.
 | --- | --- |
 | `agent_context.py` | One-command medium repo context: map + diff summary, optional error scan, and token-safe follow-up suggestions. |
 | `repo_map.py` | Compact repository orientation before broad exploration. |
+| `outline.py` | Code structure (defs, classes, exports) with line numbers and without bodies, for a file or directory. Locate the right slice before reading content. |
+| `run_capped.py` | Run a command, keep the full raw output in `~/.codex/tmp/`, and print only exit code, head, tail, and error lines. |
 | `safe_read.py` | Small redacted slices, heads, tails, and search snippets from text files or stdin. |
 | `scan_errors.py` | Finding likely failures in logs, command output, or repositories. |
 | `compact_logs.py` | Filtering logs by keyword, regex, level, tail, and context. |
@@ -115,6 +118,8 @@ Common commands:
 ```bash
 python3 ~/.agents/scripts/agent_context.py . --max-output-chars 12000
 python3 ~/.agents/scripts/agent_context.py . --scan-errors --max-output-chars 12000
+python3 ~/.agents/scripts/outline.py src/ --max-files 40
+python3 ~/.agents/scripts/run_capped.py -- npm run build
 python3 ~/.agents/scripts/safe_read.py app.py --head 80
 python3 ~/.agents/scripts/safe_read.py server.log --find traceback --context 3
 python3 ~/.agents/scripts/scan_errors.py output.txt --context 2 --limit 30

@@ -38,16 +38,17 @@ def build_next_steps(path: str, diff_summary: str, scan_summary: str | None) -> 
     steps: list[str] = ["Next Token-Safe Steps:"]
 
     if changed_files:
-        steps.append("- Inspect candidate files first (safe_read keeps output small):")
+        steps.append("- Inspect candidate files first (outline, then targeted safe_read):")
         for filename in changed_files:
             full_path = os.path.normpath(os.path.join(path, filename))
+            steps.append(f"  - python3 ~/.agents/scripts/outline.py {full_path}")
             steps.append(f"  - python3 ~/.agents/scripts/safe_read.py {full_path} --head 160")
     else:
         steps.append("- No local file deltas detected.")
         steps.append(
             "  - rg -n \"symbol_or_error\" . --glob '!node_modules' --glob '!.git' | head -c 12000"
         )
-        steps.append("  - Then narrow with safe_read.py <likely_file> --head 120")
+        steps.append("  - Then outline.py <likely_file>, then safe_read.py <likely_file> --start N --end M")
 
     if scan_summary and re.search(r"Found\s+\d+\s+matches", scan_summary):
         steps.append("- Refine matched logs before reading full files:")
