@@ -76,12 +76,13 @@ install_md() {
   local dest="$2"
   local tmp
 
-  if [ ! -e "$dest" ] || ! command -v python3 >/dev/null 2>&1; then
+  if ! command -v python3 >/dev/null 2>&1; then
     install_file "$src" "$dest"
     return 0
   fi
 
-  # Preserve plugin-managed marker blocks (e.g. <!-- context7 -->) already in dest.
+  # Only the <!-- agents-toolkit --> managed section is replaced; anything
+  # other tools wrote to dest (plugin blocks, MCP/skill notes) is kept as-is.
   tmp="$(mktemp)"
   python3 "${SCRIPTS_SRC}/merge_md_blocks.py" "$src" "$dest" "$tmp"
   install_file "$tmp" "$dest"

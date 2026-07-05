@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
-"""Merge plugin-managed marker blocks from an existing agents md into new content.
+"""Merge toolkit content into an existing agents md without touching foreign content.
 
-Blocks recognized in the existing destination file:
+The toolkit content is wrapped in a managed section:
+  <!-- agents-toolkit:start --> ... <!-- agents-toolkit:end -->
+
+If DEST already has that section, only the section is replaced; everything
+else (plugin blocks, MCP/skill notes, hand edits — any format) is preserved
+verbatim in place.
+
+If DEST has no managed section yet (legacy install), the output is the new
+wrapped content plus any recognized plugin marker blocks from DEST:
   <!-- name:start --> ... <!-- name:end -->
   <!-- name --> ... <!-- name -->   (same comment opens and closes)
-
-Any such block present in DEST but absent (by name) from SRC is appended to
-the merged output, so reinstalling AGENTS.md never wipes what other plugins
-(context7, codebase-memory-mcp, ...) injected.
 
 Usage: merge_md_blocks.py SRC DEST [OUT]
 Writes merged content to OUT, or stdout if OUT is omitted.
 """
 import re
 import sys
+
+MANAGED = "agents-toolkit"
+START = f"<!-- {MANAGED}:start -->"
+END = f"<!-- {MANAGED}:end -->"
+MANAGED_RE = re.compile(re.escape(START) + r".*?" + re.escape(END), re.DOTALL)
 
 BLOCK_RE = re.compile(
     r"(?:<!--\s*([\w.-]+):start\s*-->.*?<!--\s*\1:end\s*-->)"
@@ -30,16 +39,24 @@ def find_blocks(text):
     return blocks
 
 
+def wrap(text):
+    return START + "\n" + text.strip("\n") + "\n" + END
+
+
 def merge(new_text, old_text):
+    wrapped = wrap(new_text)
+    if MANAGED_RE.search(old_text):
+        return MANAGED_RE.sub(lambda _: wrapped, old_text, count=1)
+    # Legacy dest without a managed section: adopt it, keeping plugin blocks.
     new_names = find_blocks(new_text)
     kept = [
         block
         for name, block in find_blocks(old_text).items()
-        if name not in new_names
+        if name != MANAGED and name not in new_names
     ]
     if not kept:
-        return new_text
-    return new_text.rstrip("\n") + "\n\n" + "\n\n".join(kept) + "\n"
+        return wrapped + "\n"
+    return wrapped + "\n\n" + "\n\n".join(kept) + "\n"
 
 
 def main(argv):

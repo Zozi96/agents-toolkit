@@ -92,12 +92,13 @@ function Install-AgentsMd {
     if (-not $python) {
         $python = Get-Command python -ErrorAction SilentlyContinue
     }
-    if (-not $python -or -not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
+    if (-not $python) {
         Install-File -Source $Source -Destination $Destination
         return
     }
 
-    # Preserve plugin-managed marker blocks (e.g. <!-- context7 -->) already in dest.
+    # Only the <!-- agents-toolkit --> managed section is replaced; anything
+    # other tools wrote to dest (plugin blocks, MCP/skill notes) is kept as-is.
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
         & $python.Source (Join-Path $scriptsSource "merge_md_blocks.py") $Source $Destination $tmp

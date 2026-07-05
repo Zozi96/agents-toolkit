@@ -367,6 +367,27 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(result.stdout.count("<!-- context7 -->"), 2)
         self.assertNotIn("old", result.stdout)
 
+    def test_merge_md_blocks_replaces_only_managed_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            src = tmp_path / "src.md"
+            dest = tmp_path / "dest.md"
+            src.write_text("# New rules\n", encoding="utf-8")
+            dest.write_text(
+                "# Unmarked notes written by another tool\n\n"
+                "<!-- agents-toolkit:start -->\n# Old rules\n<!-- agents-toolkit:end -->\n\n"
+                "trailing plugin text without any markers\n",
+                encoding="utf-8",
+            )
+
+            result = run_script("merge_md_blocks.py", str(src), str(dest))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("# Unmarked notes written by another tool", result.stdout)
+        self.assertIn("trailing plugin text without any markers", result.stdout)
+        self.assertIn("<!-- agents-toolkit:start -->\n# New rules\n<!-- agents-toolkit:end -->", result.stdout)
+        self.assertNotIn("# Old rules", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
