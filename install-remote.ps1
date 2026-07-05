@@ -17,6 +17,7 @@ $files = @(
     "scripts/agent_context.py",
     "scripts/compact_logs.py",
     "scripts/diff_summary.py",
+    "scripts/merge_md_blocks.py",
     "scripts/outline.py",
     "scripts/repo_map.py",
     "scripts/run_capped.py",

@@ -82,6 +82,32 @@ function Install-File {
     Write-Step "Installed: $Destination"
 }
 
+function Install-AgentsMd {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    $python = Get-Command python3 -ErrorAction SilentlyContinue
+    if (-not $python) {
+        $python = Get-Command python -ErrorAction SilentlyContinue
+    }
+    if (-not $python -or -not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
+        Install-File -Source $Source -Destination $Destination
+        return
+    }
+
+    # Preserve plugin-managed marker blocks (e.g. <!-- context7 -->) already in dest.
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+        & $python.Source (Join-Path $scriptsSource "merge_md_blocks.py") $Source $Destination $tmp
+        Install-File -Source $tmp -Destination $Destination
+    }
+    finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $agentsSource = Join-Path $scriptDir "AGENTS.md"
 $scriptsSource = Join-Path $scriptDir "scripts"
@@ -99,10 +125,10 @@ if ($helpers.Count -eq 0) {
     throw "No Python helper scripts found in $scriptsSource"
 }
 
-Install-File -Source $agentsSource -Destination (Join-Path $HOME ".codex/AGENTS.md")
-Install-File -Source $agentsSource -Destination (Join-Path $HOME ".claude/CLAUDE.md")
-Install-File -Source $agentsSource -Destination (Join-Path $HOME ".pi/agent/AGENTS.md")
-Install-File -Source $agentsSource -Destination (Join-Path $HOME ".gemini/GEMINI.md")
+Install-AgentsMd -Source $agentsSource -Destination (Join-Path $HOME ".codex/AGENTS.md")
+Install-AgentsMd -Source $agentsSource -Destination (Join-Path $HOME ".claude/CLAUDE.md")
+Install-AgentsMd -Source $agentsSource -Destination (Join-Path $HOME ".pi/agent/AGENTS.md")
+Install-AgentsMd -Source $agentsSource -Destination (Join-Path $HOME ".gemini/GEMINI.md")
 
 $helpersDest = Join-Path $HOME ".agents/scripts"
 Invoke-Step -Description "New-Item -ItemType Directory '$helpersDest'" -Action {

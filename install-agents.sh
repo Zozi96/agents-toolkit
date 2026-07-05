@@ -71,6 +71,23 @@ install_file() {
   log "Installed: $dest"
 }
 
+install_md() {
+  local src="$1"
+  local dest="$2"
+  local tmp
+
+  if [ ! -e "$dest" ] || ! command -v python3 >/dev/null 2>&1; then
+    install_file "$src" "$dest"
+    return 0
+  fi
+
+  # Preserve plugin-managed marker blocks (e.g. <!-- context7 -->) already in dest.
+  tmp="$(mktemp)"
+  python3 "${SCRIPTS_SRC}/merge_md_blocks.py" "$src" "$dest" "$tmp"
+  install_file "$tmp" "$dest"
+  rm -f "$tmp"
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run)
@@ -95,10 +112,10 @@ SCRIPTS_SRC="${SCRIPT_DIR}/scripts"
 [ -d "$SCRIPTS_SRC" ] || die "Missing ${SCRIPTS_SRC}"
 find "$SCRIPTS_SRC" -maxdepth 1 -type f -name '*.py' -print -quit | grep -q . || die "No Python helper scripts found in ${SCRIPTS_SRC}"
 
-install_file "$AGENTS_SRC" "${HOME}/.codex/AGENTS.md"
-install_file "$AGENTS_SRC" "${HOME}/.claude/CLAUDE.md"
-install_file "$AGENTS_SRC" "${HOME}/.pi/agent/AGENTS.md"
-install_file "$AGENTS_SRC" "${HOME}/.gemini/GEMINI.md"
+install_md "$AGENTS_SRC" "${HOME}/.codex/AGENTS.md"
+install_md "$AGENTS_SRC" "${HOME}/.claude/CLAUDE.md"
+install_md "$AGENTS_SRC" "${HOME}/.pi/agent/AGENTS.md"
+install_md "$AGENTS_SRC" "${HOME}/.gemini/GEMINI.md"
 
 run mkdir -p "${HOME}/.agents/scripts"
 for helper in "$SCRIPTS_SRC"/*.py; do

@@ -332,5 +332,41 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("+1 -0", result.stdout)
 
 
+    def test_merge_md_blocks_preserves_plugin_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            src = tmp_path / "src.md"
+            dest = tmp_path / "dest.md"
+            src.write_text("# Rules\n\nbody\n", encoding="utf-8")
+            dest.write_text(
+                "# Old rules\n\n"
+                "<!-- context7 -->\nuse context7\n<!-- context7 -->\n\n"
+                "<!-- kg:start -->\ngraph rules\n<!-- kg:end -->\n",
+                encoding="utf-8",
+            )
+
+            result = run_script("merge_md_blocks.py", str(src), str(dest))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("# Rules", result.stdout)
+        self.assertIn("<!-- context7 -->\nuse context7\n<!-- context7 -->", result.stdout)
+        self.assertIn("<!-- kg:start -->\ngraph rules\n<!-- kg:end -->", result.stdout)
+        self.assertNotIn("# Old rules", result.stdout)
+
+    def test_merge_md_blocks_skips_blocks_already_in_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            src = tmp_path / "src.md"
+            dest = tmp_path / "dest.md"
+            src.write_text("# Rules\n\n<!-- context7 -->\nnew\n<!-- context7 -->\n", encoding="utf-8")
+            dest.write_text("<!-- context7 -->\nold\n<!-- context7 -->\n", encoding="utf-8")
+
+            result = run_script("merge_md_blocks.py", str(src), str(dest))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count("<!-- context7 -->"), 2)
+        self.assertNotIn("old", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
