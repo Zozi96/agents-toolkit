@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh the self-contained Codex plugin from canonical toolkit files."""
+"""Refresh the self-contained plugin (Codex + Claude Code) from canonical toolkit files."""
 import json
 import shutil
 from pathlib import Path
@@ -43,7 +43,9 @@ def main():
                     "hooks": [
                         {
                             "type": "command",
-                            "command": 'python3 "${PLUGIN_ROOT}/hooks/session-start.py"',
+                            # Shell fallback keeps one hooks.json for both agents:
+                            # Claude Code exports CLAUDE_PLUGIN_ROOT, Codex exports PLUGIN_ROOT.
+                            "command": 'python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}/hooks/session-start.py"',
                             "commandWindows": "pwsh -NoProfile -Command \"& (Join-Path $env:PLUGIN_ROOT 'hooks/session-start.ps1')\"",
                             "timeout": 15,
                             "statusMessage": "Loading token-safe repository context",

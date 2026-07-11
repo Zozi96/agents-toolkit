@@ -1,0 +1,15 @@
+{
+  "name": "agents-toolkit",
+  "description": "Token-efficient repository inspection tools for coding agents",
+  "owner": {
+    "name": "Zozi"
+  },
+  "plugins": [
+    {
+      "name": "token-efficient-repo-work",
+      "source": "./plugins/token-efficient-repo-work",
+      "description": "Compact repository context with token-safe helpers",
+      "category": "productivity"
+    }
+  ]
+}

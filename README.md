@@ -1,6 +1,29 @@
 # Agents Toolkit
 
-Official Codex plugin for compact repository inspection, redacted context, and token-capped command output.
+Plugin for Claude Code and Codex: compact repository inspection, redacted context, and token-capped command output.
+
+## Claude Code Plugin Install
+
+Install from GitHub:
+
+```
+/plugin marketplace add Zozi96/agents-toolkit
+/plugin install token-efficient-repo-work@agents-toolkit
+```
+
+For local development from this repository:
+
+```
+/plugin marketplace add .
+/plugin install token-efficient-repo-work@agents-toolkit
+```
+
+Restart the session so the `SessionStart` hook injects `Repository Context`. Validate packaging with:
+
+```bash
+claude plugin validate plugins/token-efficient-repo-work
+claude plugin validate .
+```
 
 ## Codex Plugin Install
 

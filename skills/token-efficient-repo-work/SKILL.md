@@ -1,11 +1,11 @@
 ---
 name: token-efficient-repo-work
-description: Inspect and diagnose software repositories with minimal context across POSIX shells and Windows PowerShell by routing code exploration, large files, logs, tests, diffs, JSON, CSV, TSV, JSONL, and unknown-size commands through token-capped, redacting helpers. Use when Codex needs to understand a codebase, locate relevant code, review changes, analyze failures, or process potentially large or sensitive local output without loading raw data into context.
+description: Inspect and diagnose software repositories with minimal context across POSIX shells and Windows PowerShell by routing code exploration, large files, logs, tests, diffs, JSON, CSV, TSV, JSONL, and unknown-size commands through token-capped, redacting helpers. Use when the agent needs to understand a codebase, locate relevant code, review changes, analyze failures, or process potentially large or sensitive local output without loading raw data into context.
 ---
 
 # Token-Efficient Repo Work
 
-Minimize context without sacrificing evidence. Use the bundled helpers from `$PLUGIN_ROOT/scripts`; do not rewrite or install them globally.
+Minimize context without sacrificing evidence. Use the bundled helpers from the plugin `scripts/` directory; do not rewrite or install them globally. The plugin root is `$CLAUDE_PLUGIN_ROOT` (Claude Code) or `$PLUGIN_ROOT` (Codex).
 
 ## Workflow
 
@@ -13,7 +13,7 @@ Minimize context without sacrificing evidence. Use the bundled helpers from `$PL
 2. Resolve the helper directory, then reuse `Repository Context` injected by the `SessionStart` hook when present. Do not rerun orientation unless that context is missing, stale, or insufficient. Otherwise run:
 
    ```bash
-   helpers="$PLUGIN_ROOT/scripts"
+   helpers="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/scripts"
    python3 "$helpers/agent_context.py" . --max-output-chars 12000
    ```
 
@@ -37,7 +37,8 @@ Minimize context without sacrificing evidence. Use the bundled helpers from `$PL
 Detect Windows PowerShell through `$PSVersionTable`. Use these equivalents instead of Bash syntax:
 
 ```powershell
-$helpers = Join-Path $env:PLUGIN_ROOT "scripts"
+$root = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }
+$helpers = Join-Path $root "scripts"
 $python = if (Get-Command py -ErrorAction SilentlyContinue) { "py" }
     elseif (Get-Command python -ErrorAction SilentlyContinue) { "python" }
     elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" }

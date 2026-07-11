@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inject compact repository context at Codex session start."""
+"""Inject compact repository context at agent session start (Claude Code or Codex)."""
 import json
 import os
 import subprocess
@@ -31,7 +31,7 @@ def git_root(cwd):
 
 def repository_context(cwd):
     root = git_root(cwd)
-    plugin_root = os.environ.get("PLUGIN_ROOT")
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.environ.get("PLUGIN_ROOT")
     if not root or not plugin_root:
         return ""
     helper = Path(plugin_root) / "scripts" / "agent_context.py"

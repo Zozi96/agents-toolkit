@@ -93,6 +93,39 @@ class ScriptSmokeTests(unittest.TestCase):
         for name in ("agent_context.py", "safe_read.py", "run_capped.py", "summarize_tests.py"):
             self.assertEqual((plugin / "scripts" / name).read_bytes(), (ROOT / "scripts" / name).read_bytes())
 
+    def test_claude_plugin_package_is_registered(self):
+        plugin = ROOT / "plugins/token-efficient-repo-work"
+        manifest = json.loads((plugin / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+        marketplace = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+        hooks = json.loads((plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["name"], "token-efficient-repo-work")
+        self.assertEqual(marketplace["name"], "agents-toolkit")
+        self.assertEqual(marketplace["plugins"][0]["source"], "./plugins/token-efficient-repo-work")
+        handler = hooks["hooks"]["SessionStart"][0]["hooks"][0]
+        self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}", handler["command"])
+
+    def test_plugin_session_start_hook_accepts_claude_plugin_root(self):
+        plugin = ROOT / "plugins/token-efficient-repo-work"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            init_repo(repo)
+            env = {k: v for k, v in os.environ.items() if k != "PLUGIN_ROOT"}
+            result = subprocess.run(
+                [PYTHON, str(plugin / "hooks/session-start.py")],
+                input=json.dumps({"cwd": str(repo), "hook_event_name": "SessionStart"}),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**env, "HOME": str(Path(tmp) / "empty-home"), "CLAUDE_PLUGIN_ROOT": str(plugin)},
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Repository Context", context)
+
     def test_plugin_session_start_hook_uses_bundled_helpers(self):
         plugin = ROOT / "plugins/token-efficient-repo-work"
         with tempfile.TemporaryDirectory() as tmp:
