@@ -5,7 +5,7 @@ description: Inspect and diagnose software repositories with minimal context acr
 
 # Token-Efficient Repo Work
 
-Minimize context without sacrificing evidence. Use bundled helpers from `$PLUGIN_ROOT/scripts` when installed as a plugin; otherwise use `~/.agents/scripts`. Do not rewrite them.
+Minimize context without sacrificing evidence. Use the bundled helpers from `$PLUGIN_ROOT/scripts`; do not rewrite or install them globally.
 
 ## Workflow
 
@@ -13,7 +13,7 @@ Minimize context without sacrificing evidence. Use bundled helpers from `$PLUGIN
 2. Resolve the helper directory, then reuse `Repository Context` injected by the `SessionStart` hook when present. Do not rerun orientation unless that context is missing, stale, or insufficient. Otherwise run:
 
    ```bash
-   helpers="${PLUGIN_ROOT:-$HOME/.agents}/scripts"
+   helpers="$PLUGIN_ROOT/scripts"
    python3 "$helpers/agent_context.py" . --max-output-chars 12000
    ```
 
@@ -37,7 +37,7 @@ Minimize context without sacrificing evidence. Use bundled helpers from `$PLUGIN
 Detect Windows PowerShell through `$PSVersionTable`. Use these equivalents instead of Bash syntax:
 
 ```powershell
-$helpers = if ($env:PLUGIN_ROOT) { Join-Path $env:PLUGIN_ROOT "scripts" } else { Join-Path $HOME ".agents/scripts" }
+$helpers = Join-Path $env:PLUGIN_ROOT "scripts"
 $python = if (Get-Command py -ErrorAction SilentlyContinue) { "py" }
     elseif (Get-Command python -ErrorAction SilentlyContinue) { "python" }
     elseif (Get-Command python3 -ErrorAction SilentlyContinue) { "python3" }

@@ -14,6 +14,6 @@ else {
 }
 $pythonArgs = if ($python -eq "py") { @("-3") } else { @() }
 $payload = [Console]::In.ReadToEnd()
-$hookRoot = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { Join-Path $HOME ".agents" }
-$payload | & $python @pythonArgs (Join-Path $hookRoot "hooks/session-start.py")
+if (-not $env:PLUGIN_ROOT) { throw "PLUGIN_ROOT is required" }
+$payload | & $python @pythonArgs (Join-Path $env:PLUGIN_ROOT "hooks/session-start.py")
 exit $LASTEXITCODE

@@ -1,6 +1,5 @@
 import os
 import json
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -44,8 +43,17 @@ def init_repo(path):
 
 
 class ScriptSmokeTests(unittest.TestCase):
-    def test_agents_rules_stay_compact(self):
-        self.assertLessEqual((ROOT / "AGENTS.md").stat().st_size, 3500)
+    def test_legacy_instruction_installers_are_removed(self):
+        for path in (
+            "AGENTS.md",
+            "install-agents.sh",
+            "install-agents.ps1",
+            "install-remote.sh",
+            "install-remote.ps1",
+            "scripts/merge_hooks.py",
+            "scripts/merge_md_blocks.py",
+        ):
+            self.assertFalse((ROOT / path).exists(), path)
 
     def test_token_efficient_skill_is_complete_and_compact(self):
         skill = ROOT / "skills" / "token-efficient-repo-work"
@@ -104,102 +112,6 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Repository Context", context)
-
-    @unittest.skipUnless(shutil.which("bash"), "bash required")
-    def test_local_installer_dry_run_includes_codex_hook_and_skill(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            result = subprocess.run(
-                ["bash", str(ROOT / "install-agents.sh"), "--dry-run"],
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env={**os.environ, "HOME": tmp},
-                check=False,
-            )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(".codex/hooks.json", result.stdout)
-        self.assertIn(".agents/hooks/session-start.py", result.stdout)
-        self.assertIn(".codex/skills/token-efficient-repo-work/SKILL.md", result.stdout)
-        self.assertNotIn("Installed: " + str(Path(tmp) / ".codex/AGENTS.md"), result.stdout)
-
-    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell required")
-    def test_powershell_installer_dry_run_includes_codex_hook(self):
-        result = subprocess.run(
-            ["pwsh", "-NoProfile", "-File", str(ROOT / "install-agents.ps1"), "-DryRun"],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(".codex/hooks.json", result.stdout)
-        self.assertIn(".agents/hooks/session-start.py", result.stdout)
-
-    def test_session_start_hook_injects_compact_repo_context(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            home = base / "home"
-            repo = base / "repo"
-            shutil.copytree(ROOT / "scripts", home / ".agents/scripts")
-            repo.mkdir()
-            init_repo(repo)
-            result = subprocess.run(
-                [PYTHON, str(ROOT / "hooks/session-start.py")],
-                input=json.dumps({"cwd": str(repo), "hook_event_name": "SessionStart"}),
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env={**os.environ, "HOME": str(home)},
-                check=False,
-            )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)["hookSpecificOutput"]
-        self.assertEqual(output["hookEventName"], "SessionStart")
-        self.assertIn("Token-efficient repository workflow", output["additionalContext"])
-        self.assertIn("Repository Context", output["additionalContext"])
-        self.assertLess(len(output["additionalContext"]), 7500)
-
-    def test_merge_hooks_preserves_foreign_hooks_and_is_idempotent(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            destination = base / "hooks.json"
-            first = base / "first.json"
-            second = base / "second.json"
-            destination.write_text(
-                json.dumps(
-                    {
-                        "custom": True,
-                        "hooks": {
-                            "Stop": [{"hooks": [{"type": "command", "command": "echo done"}]}],
-                            "SessionStart": [
-                                {
-                                    "hooks": [
-                                        {
-                                            "type": "command",
-                                            "command": "python3 ~/.agents/hooks/session-start.py --old",
-                                        }
-                                    ]
-                                }
-                            ],
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            result = run_script("merge_hooks.py", str(ROOT / "hooks/hooks.json"), str(destination), str(first))
-            again = run_script("merge_hooks.py", str(ROOT / "hooks/hooks.json"), str(first), str(second))
-
-            merged = json.loads(first.read_text(encoding="utf-8"))
-            session = merged["hooks"]["SessionStart"]
-            commands = [handler["command"] for group in session for handler in group["hooks"]]
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(again.returncode, 0, again.stderr)
-            self.assertTrue(merged["custom"])
-            self.assertIn("Stop", merged["hooks"])
-            self.assertEqual(commands, ["python3 ~/.agents/hooks/session-start.py"])
-            self.assertEqual(first.read_text(encoding="utf-8"), second.read_text(encoding="utf-8"))
 
     def test_safe_read_redacts_and_marks_matches(self):
         result = run_script(
@@ -534,75 +446,6 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("Mode: base comparison (HEAD~1...HEAD)", result.stdout)
         self.assertIn("file.txt", result.stdout)
         self.assertIn("+1 -0", result.stdout)
-
-
-    def test_merge_md_blocks_preserves_plugin_blocks(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            src = tmp_path / "src.md"
-            dest = tmp_path / "dest.md"
-            src.write_text("# Rules\n\nbody\n", encoding="utf-8")
-            dest.write_text(
-                "# Old rules\n\n"
-                "<!-- context7 -->\nuse context7\n<!-- context7 -->\n\n"
-                "<!-- kg:start -->\ngraph rules\n<!-- kg:end -->\n",
-                encoding="utf-8",
-            )
-
-            result = run_script("merge_md_blocks.py", str(src), str(dest))
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("# Rules", result.stdout)
-        self.assertIn("<!-- context7 -->\nuse context7\n<!-- context7 -->", result.stdout)
-        self.assertIn("<!-- kg:start -->\ngraph rules\n<!-- kg:end -->", result.stdout)
-        self.assertNotIn("# Old rules", result.stdout)
-
-    def test_merge_md_blocks_skips_blocks_already_in_source(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            src = tmp_path / "src.md"
-            dest = tmp_path / "dest.md"
-            src.write_text("# Rules\n\n<!-- context7 -->\nnew\n<!-- context7 -->\n", encoding="utf-8")
-            dest.write_text("<!-- context7 -->\nold\n<!-- context7 -->\n", encoding="utf-8")
-
-            result = run_script("merge_md_blocks.py", str(src), str(dest))
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count("<!-- context7 -->"), 2)
-        self.assertNotIn("old", result.stdout)
-
-    def test_merge_md_blocks_replaces_only_managed_section(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            src = tmp_path / "src.md"
-            dest = tmp_path / "dest.md"
-            src.write_text("# New rules\n", encoding="utf-8")
-            dest.write_text(
-                "# Unmarked notes written by another tool\n\n"
-                "<!-- agents-toolkit:start -->\n# Old rules\n<!-- agents-toolkit:end -->\n\n"
-                "trailing plugin text without any markers\n",
-                encoding="utf-8",
-            )
-
-            result = run_script("merge_md_blocks.py", str(src), str(dest))
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("# Unmarked notes written by another tool", result.stdout)
-        self.assertIn("trailing plugin text without any markers", result.stdout)
-        self.assertIn("<!-- agents-toolkit:start -->\n# New rules\n<!-- agents-toolkit:end -->", result.stdout)
-        self.assertNotIn("# Old rules", result.stdout)
-
-    def test_merge_md_blocks_removes_only_managed_section(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            destination = Path(tmp) / "AGENTS.md"
-            destination.write_text(
-                "before\n\n<!-- agents-toolkit:start -->\nold toolkit\n<!-- agents-toolkit:end -->\n\nafter\n",
-                encoding="utf-8",
-            )
-            result = run_script("merge_md_blocks.py", "--remove", str(destination))
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "before\n\nafter\n")
 
 
 if __name__ == "__main__":

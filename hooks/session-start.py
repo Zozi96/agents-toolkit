@@ -10,7 +10,7 @@ from pathlib import Path
 POLICY = """Token-efficient repository workflow:
 - Use the supplied Repository Context and its Next Token-Safe Steps before broad reads.
 - Prefer indexed code/search tools when available; otherwise use exact `rg`, then `outline.py` and `safe_read.py`.
-- Route unknown-size output, tests, logs, diffs, JSON, and tabular data through the installed `~/.agents/scripts` helpers.
+- Route unknown-size output, tests, logs, diffs, JSON, and tabular data through the bundled plugin helpers.
 - Redact secrets, keep scratch output under `~/.codex/tmp`, preserve user changes, and keep Git read-only unless authorized.
 - Make the smallest scoped change, run the smallest useful validation, and report paths, line references, status, and anything not validated."""
 
@@ -31,9 +31,11 @@ def git_root(cwd):
 
 def repository_context(cwd):
     root = git_root(cwd)
-    helper_root = Path(os.environ["PLUGIN_ROOT"]) if os.environ.get("PLUGIN_ROOT") else Path.home() / ".agents"
-    helper = helper_root / "scripts" / "agent_context.py"
-    if not root or not helper.is_file():
+    plugin_root = os.environ.get("PLUGIN_ROOT")
+    if not root or not plugin_root:
+        return ""
+    helper = Path(plugin_root) / "scripts" / "agent_context.py"
+    if not helper.is_file():
         return ""
     try:
         result = subprocess.run(
