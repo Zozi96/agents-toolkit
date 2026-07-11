@@ -57,7 +57,7 @@ class ScriptSmokeTests(unittest.TestCase):
             self.assertFalse((ROOT / path).exists(), path)
 
     def test_token_efficient_skill_is_complete_and_compact(self):
-        skill = ROOT / "skills" / "token-efficient-repo-work"
+        skill = ROOT / "plugins/token-efficient-repo-work/skills/token-efficient-repo-work"
         instructions = (skill / "SKILL.md").read_text(encoding="utf-8")
         metadata = (skill / "agents" / "openai.yaml").read_text(encoding="utf-8")
 
@@ -87,10 +87,6 @@ class ScriptSmokeTests(unittest.TestCase):
         handler = hooks["hooks"]["SessionStart"][0]["hooks"][0]
         self.assertIn("${PLUGIN_ROOT}", handler["command"])
         self.assertIn("$env:PLUGIN_ROOT", handler["commandWindows"])
-        self.assertEqual(
-            (plugin / "skills/token-efficient-repo-work/SKILL.md").read_bytes(),
-            (ROOT / "skills/token-efficient-repo-work/SKILL.md").read_bytes(),
-        )
         bundled = sorted(path.name for path in (plugin / "scripts").glob("*.py"))
         self.assertGreaterEqual(len(bundled), 12)
         for name in bundled:

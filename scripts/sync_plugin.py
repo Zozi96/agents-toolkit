@@ -30,8 +30,6 @@ def copy(source, destination):
 
 def main():
     skill = PLUGIN / "skills" / "token-efficient-repo-work"
-    copy(ROOT / "skills/token-efficient-repo-work/SKILL.md", skill / "SKILL.md")
-    copy(ROOT / "skills/token-efficient-repo-work/agents/openai.yaml", skill / "agents/openai.yaml")
     copy(ROOT / "hooks/session-start.py", PLUGIN / "hooks/session-start.py")
     copy(ROOT / "hooks/session-start.ps1", PLUGIN / "hooks/session-start.ps1")
     for helper in HELPERS:

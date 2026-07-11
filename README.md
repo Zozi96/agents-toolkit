@@ -50,7 +50,7 @@ codex plugin add token-efficient-repo-work@agents-toolkit
 
 Start a new Codex task after installation. Review and trust the bundled `SessionStart` hook with `/hooks`; plugin installation does not automatically trust command hooks.
 
-The plugin is self-contained under `plugins/token-efficient-repo-work/`. Run `python3 scripts/sync_plugin.py` after changing canonical helpers, hooks, or the skill.
+The plugin is self-contained under `plugins/token-efficient-repo-work/`. Run `python3 scripts/sync_plugin.py` after changing canonical helpers or hooks.
 
 ## Token-Saving Model
 
