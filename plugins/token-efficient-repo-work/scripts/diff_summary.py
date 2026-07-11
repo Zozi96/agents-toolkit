@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 from dataclasses import dataclass
+from itertools import islice
 
 from _agent_utils import (
     DEFAULT_IGNORE_DIRS,
@@ -63,6 +65,17 @@ def parse_int(value: str) -> int:
     return 0 if value == "-" else int(value or "0")
 
 
+def normalize_rename(path: str) -> str:
+    """Resolve numstat rename notation ('src/{old.py => new.py}', 'old => new')
+    to the destination path so it keys identically to --name-status output."""
+    if " => " not in path:
+        return path
+    path = re.sub(r"\{([^{}]*) => ([^{}]*)\}", r"\2", path)
+    if " => " in path:
+        path = path.split(" => ")[-1]
+    return path.replace("//", "/")
+
+
 def parse_numstat(repo: str, diff_args: list[str], source: str) -> dict[str, FileChange]:
     result = run_git(repo, ["diff", "--numstat", *diff_args])
     changes: dict[str, FileChange] = {}
@@ -70,7 +83,7 @@ def parse_numstat(repo: str, diff_args: list[str], source: str) -> dict[str, Fil
         parts = line.split("\t")
         if len(parts) < 3:
             continue
-        additions, deletions, path = parts[0], parts[1], parts[-1]
+        additions, deletions, path = parts[0], parts[1], normalize_rename(parts[-1])
         changes[path] = FileChange(
             path=path,
             status="M",
@@ -171,8 +184,6 @@ def hunk_lines(repo: str, diff_args: list[str], source: str, max_hunks: int, lin
             hunk_body_lines = 0
             continue
         if in_hunk:
-            if raw.startswith("@@ "):
-                continue
             if raw.startswith((" ", "+", "-")) and not raw.startswith(("+++", "---")):
                 if hunk_body_lines < 12:
                     output.append(truncate_line(redact_text(raw), line_width))
@@ -194,7 +205,7 @@ def untracked_preview(repo: str, changes: list[FileChange], max_hunks: int, line
         path = os.path.join(repo, change.path)
         try:
             with open(path, "r", encoding="utf-8", errors="ignore") as handle:
-                lines = handle.readlines()
+                lines = list(islice(handle, 13))
         except OSError:
             continue
         output.append(f"\n--- untracked: {change.path}")

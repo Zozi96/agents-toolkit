@@ -12,6 +12,7 @@ Examples:
 import argparse
 from collections import deque
 import re
+import sys
 
 from _agent_utils import (
     collect_match_snippets,
@@ -50,7 +51,7 @@ def main():
         compiled_regex = re.compile(args.regex, flags) if args.regex else None
     except re.error as e:
         print(f"Invalid regex: {e}")
-        return
+        sys.exit(2)
     keywords = [k if args.case_sensitive else k.lower() for k in args.keyword]
     levels = [l if args.case_sensitive else l.lower() for l in args.level]
 

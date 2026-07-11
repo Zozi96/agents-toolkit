@@ -1,7 +1,7 @@
 {
   "name": "token-efficient-repo-work",
   "displayName": "Token Efficient Repo Work",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Inject compact repository context at session start and route large outputs through token-capped, redacting helpers.",
   "author": {
     "name": "Zozi"

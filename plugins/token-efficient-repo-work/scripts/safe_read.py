@@ -18,16 +18,24 @@ from collections import deque
 import os
 import re
 import sys
+from typing import NoReturn
 
-from _agent_utils import collect_match_snippets, redact_text, truncate, truncate_line
+from _agent_utils import collect_match_snippets, format_snippet_line, truncate
 
 
 def emit_line(line_no: int, line: str, args: argparse.Namespace) -> str:
-    text = line.rstrip("\n")
-    if not args.show_secrets:
-        text = redact_text(text)
-    text = truncate_line(text, args.line_width)
-    return text if args.no_line_numbers else f"{line_no}: {text}"
+    return format_snippet_line(
+        line_no,
+        line,
+        line_width=args.line_width,
+        line_numbers=not args.no_line_numbers,
+        show_secrets=args.show_secrets,
+    )
+
+
+def fail(message: str) -> "NoReturn":
+    print(message)
+    sys.exit(2)
 
 
 def iter_source(args: argparse.Namespace):
@@ -39,19 +47,17 @@ def iter_source(args: argparse.Namespace):
     try:
         size_mb = os.path.getsize(args.file) / (1024 * 1024)
     except OSError as exc:
-        print(f"Error reading {args.file}: {exc}")
-        return
+        fail(f"Error reading {args.file}: {exc}")
 
     if size_mb > args.max_file_mb and not args.force:
-        print(f"Skipped {args.file}: {size_mb:.2f} MB > --max-file-mb {args.max_file_mb}. Use --force for targeted read.")
-        return
+        fail(f"Skipped {args.file}: {size_mb:.2f} MB > --max-file-mb {args.max_file_mb}. Use --force for targeted read.")
 
     try:
         with open(args.file, "r", encoding="utf-8", errors="ignore") as handle:
             for idx, line in enumerate(handle, 1):
                 yield idx, line
     except OSError as exc:
-        print(f"Error reading {args.file}: {exc}")
+        fail(f"Error reading {args.file}: {exc}")
 
 
 def select_range(args: argparse.Namespace):
@@ -88,7 +94,7 @@ def select_matches(args: argparse.Namespace):
         try:
             patterns.append(re.compile(args.regex, flags))
         except re.error as exc:
-            return [f"Invalid regex: {exc}"]
+            fail(f"Invalid regex: {exc}")
 
     snippets = collect_match_snippets(
         iter_source(args),

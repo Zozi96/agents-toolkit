@@ -59,24 +59,30 @@ def main():
 
     content = ""
     if args.file == '-':
-        content = sys.stdin.read()
+        max_bytes = int(args.max_input_mb * 1024 * 1024)
+        content = sys.stdin.read(max_bytes + 1)
+        if len(content) > max_bytes:
+            if not args.force:
+                print(f"Skipped stdin: exceeds --max-input-mb {args.max_input_mb}. Use --force for targeted summary.")
+                sys.exit(2)
+            content += sys.stdin.read()
     else:
         try:
             size_mb = os.path.getsize(args.file) / (1024 * 1024)
             if size_mb > args.max_input_mb and not args.force:
                 print(f"Skipped {args.file}: {size_mb:.2f} MB > --max-input-mb {args.max_input_mb}. Use --force for targeted summary.")
-                return
+                sys.exit(2)
             with open(args.file, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
-        except Exception as e:
+        except OSError as e:
             print(f"Error reading file: {e}")
-            return
+            sys.exit(2)
 
     try:
         data = json.loads(content)
     except json.JSONDecodeError as e:
         print(f"Failed to parse JSON: {e}")
-        return
+        sys.exit(2)
 
     summary = summarize_json_value(data, args)
     print(truncate(summary, args.max_chars))

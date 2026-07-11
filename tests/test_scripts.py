@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
+sys.path.insert(0, str(ROOT / "scripts"))
 
 
 def run_script(script, *args, input_text=None, cwd=ROOT):
@@ -90,8 +91,12 @@ class ScriptSmokeTests(unittest.TestCase):
             (plugin / "skills/token-efficient-repo-work/SKILL.md").read_bytes(),
             (ROOT / "skills/token-efficient-repo-work/SKILL.md").read_bytes(),
         )
-        for name in ("agent_context.py", "safe_read.py", "run_capped.py", "summarize_tests.py"):
-            self.assertEqual((plugin / "scripts" / name).read_bytes(), (ROOT / "scripts" / name).read_bytes())
+        bundled = sorted(path.name for path in (plugin / "scripts").glob("*.py"))
+        self.assertGreaterEqual(len(bundled), 12)
+        for name in bundled:
+            self.assertEqual((plugin / "scripts" / name).read_bytes(), (ROOT / "scripts" / name).read_bytes(), name)
+        for name in ("session-start.py", "session-start.ps1"):
+            self.assertEqual((plugin / "hooks" / name).read_bytes(), (ROOT / "hooks" / name).read_bytes(), name)
 
     def test_claude_plugin_package_is_registered(self):
         plugin = ROOT / "plugins/token-efficient-repo-work"
@@ -100,10 +105,13 @@ class ScriptSmokeTests(unittest.TestCase):
         hooks = json.loads((plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
 
         self.assertEqual(manifest["name"], "token-efficient-repo-work")
+        codex_manifest = json.loads((plugin / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], codex_manifest["version"])
         self.assertEqual(marketplace["name"], "agents-toolkit")
         self.assertEqual(marketplace["plugins"][0]["source"], "./plugins/token-efficient-repo-work")
-        handler = hooks["hooks"]["SessionStart"][0]["hooks"][0]
-        self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}", handler["command"])
+        entry = hooks["hooks"]["SessionStart"][0]
+        self.assertEqual(entry["matcher"], "startup|clear|compact")
+        self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}", entry["hooks"][0]["command"])
 
     def test_plugin_session_start_hook_accepts_claude_plugin_root(self):
         plugin = ROOT / "plugins/token-efficient-repo-work"
@@ -145,6 +153,123 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Repository Context", context)
+
+    def test_redaction_covers_quoted_keys_pem_and_bare_tokens(self):
+        from _agent_utils import is_sensitive_key, redact_text
+
+        self.assertNotIn("hunter2", redact_text('{"password": "hunter2", "user": "z"}'))
+        self.assertNotIn("sk-live", redact_text("'api_key': 'sk-live-abcdefghijklmnopqrstu'"))
+        self.assertEqual(redact_text("MIIEowIBAAKCAQEA" + "a" * 48), "****")
+        git_sha = "a" * 20 + "0" * 20
+        self.assertEqual(redact_text(git_sha), git_sha)
+        self.assertNotIn("AKIAIOSFODNN7EXAMPLE", redact_text("using AKIAIOSFODNN7EXAMPLE for access"))
+        self.assertNotIn("eyJzdWIi", redact_text("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abcDEF123"))
+        self.assertNotIn("ghp_", redact_text("push with ghp_ABCDEFGHIJKLMNOPQRSTUV1234"))
+        self.assertNotIn("xoxb-", redact_text("slack xoxb-123456789012-abcdef"))
+
+        self.assertFalse(is_sensitive_key("author"))
+        self.assertFalse(is_sensitive_key("author_name"))
+        self.assertTrue(is_sensitive_key("auth_token"))
+        self.assertTrue(is_sensitive_key("authorization"))
+
+    def test_compact_logs_scans_explicit_sqlite_and_hidden_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "dump.sqlite"
+            db.write_text("ok\nERROR boom\n", encoding="utf-8")
+            hidden = Path(tmp) / ".hidden.log"
+            hidden.write_text("ERROR hidden\n", encoding="utf-8")
+            result = run_script("compact_logs.py", str(db), str(hidden), "--keyword", "error")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Scanned 2 files. Match groups: 2.", result.stdout)
+        self.assertIn(">> 2: ERROR boom", result.stdout)
+        self.assertIn(">> 1: ERROR hidden", result.stdout)
+
+    def test_error_paths_exit_nonzero(self):
+        missing = run_script("safe_read.py", "/nonexistent/definitely-missing.txt")
+        self.assertEqual(missing.returncode, 2, missing.stdout)
+        self.assertIn("Error reading", missing.stdout)
+
+        bad_regex = run_script("compact_logs.py", "-", "--regex", "[", input_text="x\n")
+        self.assertEqual(bad_regex.returncode, 2, bad_regex.stdout)
+
+        bad_json = run_script("summarize_json.py", "-", input_text="not-json")
+        self.assertEqual(bad_json.returncode, 2, bad_json.stdout)
+
+    def test_summarize_json_stdin_respects_input_cap(self):
+        result = run_script("summarize_json.py", "-", "--max-input-mb", "0", input_text='{"ok": true}')
+
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("Use --force", result.stdout)
+
+    def test_summarize_data_streams_stdin_csv(self):
+        rows = "\n".join(f"aaa{i},bbb{i}" for i in range(500))
+        result = run_script("summarize_data.py", "-", input_text="col_a,col_b\n" + rows + "\n")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Parsed Rows: 500", result.stdout)
+
+    def test_diff_summary_normalizes_renames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            src = repo / "src"
+            src.mkdir()
+            (src / "old_name.py").write_text("x = 1\n" * 30, encoding="utf-8")
+            git(repo, "add", "src")
+            git(repo, "commit", "-m", "add module")
+            git(repo, "mv", "src/old_name.py", "src/new_name.py")
+            (src / "new_name.py").write_text("x = 1\n" * 30 + "y = 2\n", encoding="utf-8")
+            git(repo, "add", "src")
+            git(repo, "commit", "-m", "rename module")
+
+            result = run_script(
+                "diff_summary.py", str(repo), "--base", "HEAD~1", "--no-untracked", "--max-hunks", "0"
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("src/new_name.py", result.stdout)
+        self.assertNotIn("=>", result.stdout)
+        self.assertNotIn("old_name.py", result.stdout)
+
+    def test_run_capped_streams_large_output_capped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_script(
+                "run_capped.py",
+                "--log-dir",
+                tmp,
+                "--",
+                PYTHON,
+                "-c",
+                "print('\\n'.join(f'line {i}' for i in range(5000)))",
+            )
+            logs = list(Path(tmp).glob("run-*.log"))
+            log_lines = logs[0].read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Output Lines: 5000", result.stdout)
+        self.assertIn("   1: line 0", result.stdout)
+        self.assertIn("   5000: line 4999", result.stdout)
+        self.assertEqual(len(log_lines), 5000)
+        self.assertLessEqual(len(result.stdout), 13000)
+
+    def test_run_capped_times_out_with_exit_124(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run_script(
+                "run_capped.py",
+                "--timeout",
+                "1",
+                "--log-dir",
+                tmp,
+                "--",
+                PYTHON,
+                "-c",
+                "import time; print('begin', flush=True); time.sleep(10)",
+            )
+
+        self.assertEqual(result.returncode, 124, result.stdout)
+        self.assertIn("TIMEOUT", result.stdout)
+        self.assertIn("begin", result.stdout)
 
     def test_safe_read_redacts_and_marks_matches(self):
         result = run_script(

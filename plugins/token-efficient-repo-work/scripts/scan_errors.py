@@ -14,6 +14,7 @@ Examples:
 import argparse
 import os
 import re
+import sys
 
 from _agent_utils import (
     collect_match_snippets,
@@ -57,7 +58,7 @@ def main():
             regexes.append(re.compile(args.regex, re.IGNORECASE))
         except re.error as e:
             print(f"Invalid regex: {e}")
-            return
+            sys.exit(2)
             
     allowed_exts = normalize_exts(args.extensions)
 

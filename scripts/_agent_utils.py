@@ -29,14 +29,17 @@ DEFAULT_IGNORE_EXTS = {
 
 SENSITIVE_KEY_PARTS = (
     "password", "passwd", "pwd", "secret", "token", "api_key", "apikey",
-    "authorization", "auth", "cookie", "session", "private", "credential",
+    "authorization", "cookie", "session", "private", "credential",
     "access_key", "refresh_token", "client_secret", "private_key",
 )
+
+# "auth" alone would flag "author"/"authority"; require it not be followed by "or".
+SENSITIVE_AUTH_RE = re.compile(r"auth(?!or)")
 
 SECRET_LINE_PATTERNS = (
     (
         re.compile(
-            r"(?i)\b([A-Z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|authorization|cookie|session|credential|private[_-]?key)[A-Z0-9_.-]*\s*[:=]\s*)(.+)"
+            r"(?i)([\"']?[A-Z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|authorization|cookie|session|credential|private[_-]?key)[A-Z0-9_.-]*[\"']?\s*[:=]\s*)(.+)"
         ),
         lambda match: match.group(1) + "****",
     ),
@@ -49,6 +52,32 @@ SECRET_LINE_PATTERNS = (
         lambda match: match.group(1) + "****" + match.group(3),
     ),
 )
+
+# Bare high-entropy tokens that appear without a key= prefix in logs and output.
+BARE_TOKEN_RE = re.compile(
+    r"\b(?:AKIA[0-9A-Z]{16}"  # AWS access key id
+    r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]+)?"  # JWT
+    r"|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}"  # GitHub tokens
+    r"|github_pat_[A-Za-z0-9_]{20,}"
+    r"|xox[abprs]-[A-Za-z0-9][A-Za-z0-9-]{8,}"  # Slack tokens
+    r"|sk-[A-Za-z0-9_-]{20,})"  # OpenAI/Stripe-style secret keys
+)
+
+# A full line of base64 (PEM key bodies, cert blobs) redacted statelessly so
+# per-line callers still suppress multi-line private keys. The optional [+-]
+# covers diff hunk prefixes.
+# ponytail: threshold 40 covers standard 64-char PEM body lines; a short final
+# PEM line can still slip through — track BEGIN/END state per stream if that matters.
+BASE64_LINE_RE = re.compile(r"(?m)^\s*[+-]?[A-Za-z0-9+/=]{40,}\s*$")
+HEX_ONLY_RE = re.compile(r"[0-9a-fA-F]+")
+
+
+def _mask_base64_line(match: "re.Match[str]") -> str:
+    body = match.group(0).strip().lstrip("+-")
+    # Bare hex lines are digests (git SHAs, checksums), not key material.
+    if HEX_ONLY_RE.fullmatch(body):
+        return match.group(0)
+    return "****"
 
 PRIVATE_KEY_RE = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
@@ -75,12 +104,16 @@ def truncate_line(line: object, length: int = DEFAULT_LINE_WIDTH) -> str:
 
 def is_sensitive_key(key: object) -> bool:
     lowered = str(key).lower()
-    return any(part in lowered for part in SENSITIVE_KEY_PARTS)
+    if any(part in lowered for part in SENSITIVE_KEY_PARTS):
+        return True
+    return bool(SENSITIVE_AUTH_RE.search(lowered))
 
 
 def redact_text(text: object) -> str:
     value = str(text)
     value = PRIVATE_KEY_RE.sub("-----BEGIN PRIVATE KEY-----\n****\n-----END PRIVATE KEY-----", value)
+    value = BASE64_LINE_RE.sub(_mask_base64_line, value)
+    value = BARE_TOKEN_RE.sub("****", value)
     for pattern, replacement in SECRET_LINE_PATTERNS:
         value = pattern.sub(replacement, value)
     return value
@@ -243,14 +276,16 @@ def iter_text_files(
     ignore_dirs: Optional[set[str]] = None,
     ignore_exts: Optional[set[str]] = None,
 ) -> Iterator[str]:
-    ignored_dirs = ignore_dirs or DEFAULT_IGNORE_DIRS
-    ignored_exts = ignore_exts or DEFAULT_IGNORE_EXTS
+    ignored_dirs = DEFAULT_IGNORE_DIRS if ignore_dirs is None else ignore_dirs
+    ignored_exts = DEFAULT_IGNORE_EXTS if ignore_exts is None else ignore_exts
     max_bytes = max_file_mb * 1024 * 1024
 
     for path in paths:
         absolute = os.path.abspath(path)
         if os.path.isfile(absolute):
-            if _is_text_candidate(absolute, allowed_exts, max_bytes, include_hidden, ignored_exts):
+            # Explicitly named files skip the hidden/extension filters; only
+            # the size and binary guards apply.
+            if _is_text_candidate(absolute, allowed_exts, max_bytes, include_hidden, ignored_exts, explicit=True):
                 yield absolute
             continue
         if not os.path.isdir(absolute):
@@ -274,14 +309,15 @@ def _is_text_candidate(
     max_bytes: float,
     include_hidden: bool,
     ignored_exts: set[str],
+    explicit: bool = False,
 ) -> bool:
     name = os.path.basename(path)
-    if not include_hidden and name.startswith("."):
+    if not explicit and not include_hidden and name.startswith("."):
         return False
     ext = os.path.splitext(name)[1].lower()
     if allowed_exts and ext not in allowed_exts:
         return False
-    if ext in ignored_exts:
+    if not explicit and ext in ignored_exts:
         return False
     try:
         if os.path.getsize(path) > max_bytes:

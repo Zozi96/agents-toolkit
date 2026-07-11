@@ -12,12 +12,21 @@ Examples:
 import argparse
 from collections import Counter
 import csv
+import itertools
 import json
 import os
 import sys
 from io import StringIO
 
-from _agent_utils import is_sensitive_key, redact_obj, redact_text, truncate, truncate_line
+from _agent_utils import (
+    compact_error,
+    is_sensitive_key,
+    open_text_source,
+    redact_obj,
+    redact_text,
+    truncate,
+    truncate_line,
+)
 
 def main():
     parser = argparse.ArgumentParser(description="Summarize data files.")
@@ -37,10 +46,10 @@ def main():
     output = []
     ext = os.path.splitext(args.file)[1].lower() if args.file != '-' else '.csv'
     
+    failed = False
     try:
         if ext in ('.jsonl', '.ndjson'):
-            source = sys.stdin if args.file == '-' else open(args.file, 'r', encoding='utf-8', errors='ignore')
-            with source as f:
+            with open_text_source(args.file) as f:
                 rows = []
                 keys = Counter()
                 parsed_rows = 0
@@ -68,11 +77,20 @@ def main():
                 for row in rows[:args.sample_rows]:
                     output.append(truncate_line(json.dumps(row, indent=2), 1000))
         else:
-            source = StringIO(sys.stdin.read()) if args.file == '-' else open(args.file, 'r', encoding='utf-8', errors='ignore')
-            with source as f:
-                sample = f.read(4096)
-                f.seek(0)
-                
+            handle = None
+            if args.file == '-':
+                # Stream stdin: sniff on a bounded sample, then chain the
+                # rest without slurping unbounded input into memory.
+                sample = sys.stdin.read(4096)
+                if sample and not sample.endswith("\n"):
+                    sample += sys.stdin.readline()
+                f = itertools.chain(StringIO(sample), sys.stdin)
+            else:
+                handle = open(args.file, 'r', encoding='utf-8', errors='ignore')
+                sample = handle.read(4096)
+                handle.seek(0)
+                f = handle
+            try:
                 dialect = None
                 if args.delimiter:
                     dialect = csv.excel()
@@ -82,7 +100,7 @@ def main():
                         dialect = csv.Sniffer().sniff(sample)
                     except csv.Error:
                         dialect = csv.excel()
-                
+
                 reader = csv.reader(f, dialect)
                 headers = next(reader, [])
                 rows = []
@@ -97,7 +115,10 @@ def main():
                         if idx < len(value_counts) and len(value_counts[idx]) <= args.top_values * 4:
                             header = headers[idx] if idx < len(headers) else ""
                             value_counts[idx]["****" if is_sensitive_key(header) else redact_text(v)] += 1
-                    
+            finally:
+                if handle:
+                    handle.close()
+
             output.append(f"CSV/TSV File: {args.file}")
             output.append(f"Delimiter: {repr(dialect.delimiter)}")
             output.append(f"Columns ({len(headers)}): {headers[:args.max_columns]}")
@@ -117,9 +138,12 @@ def main():
                             output.append(f"  {h}: {counts.most_common(args.top_values)}")
                 
     except Exception as e:
-        output.append(f"Error reading data: {e}")
+        output.append(f"Error reading data: {compact_error(args.file, e)}")
+        failed = True
 
     print(truncate("\n".join(output), args.max_chars))
+    if failed:
+        sys.exit(2)
 
 if __name__ == "__main__":
     main()

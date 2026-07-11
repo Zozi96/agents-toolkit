@@ -40,12 +40,16 @@ def main():
         "hooks": {
             "SessionStart": [
                 {
+                    # Skip "resume": the context injected at startup is still
+                    # in the conversation; re-inject only when it was lost.
+                    "matcher": "startup|clear|compact",
                     "hooks": [
                         {
                             "type": "command",
-                            # Shell fallback keeps one hooks.json for both agents:
-                            # Claude Code exports CLAUDE_PLUGIN_ROOT, Codex exports PLUGIN_ROOT.
-                            "command": 'python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}/hooks/session-start.py"',
+                            # Shell fallbacks keep one hooks.json for both agents:
+                            # Claude Code exports CLAUDE_PLUGIN_ROOT, Codex exports
+                            # PLUGIN_ROOT; python3 may be plain python on Windows.
+                            "command": '"$(command -v python3 || command -v python)" "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}/hooks/session-start.py"',
                             "commandWindows": "pwsh -NoProfile -Command \"& (Join-Path $env:PLUGIN_ROOT 'hooks/session-start.ps1')\"",
                             "timeout": 15,
                             "statusMessage": "Loading token-safe repository context",
