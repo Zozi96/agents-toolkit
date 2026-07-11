@@ -58,8 +58,13 @@ PRIVATE_KEY_RE = re.compile(
 
 def truncate(text: object, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     value = str(text)
+    marker = "\n...[TRUNCATED]"
+    if max_chars <= 0:
+        return ""
     if len(value) > max_chars:
-        return value[:max_chars] + "\n...[TRUNCATED]"
+        if max_chars <= len(marker):
+            return value[:max_chars]
+        return value[: max_chars - len(marker)] + marker
     return value
 
 
@@ -120,16 +125,18 @@ def collect_match_snippets(
 
     for line_no, line in numbered_lines:
         if after_remaining > 0:
+            is_match = matches_line(line)
             active.append(
                 format_snippet_line(
                     line_no,
                     line,
                     line_width=line_width,
+                    match=is_match,
                     line_numbers=line_numbers,
                     show_secrets=show_secrets,
                 )
             )
-            after_remaining -= 1
+            after_remaining = context if is_match else after_remaining - 1
             if after_remaining == 0:
                 snippets.append(active)
                 active = []

@@ -16,7 +16,7 @@ import os
 import sys
 from collections import defaultdict
 
-from _agent_utils import DEFAULT_IGNORE_DIRS, DEFAULT_IGNORE_EXTS, is_binary_file, truncate
+from _agent_utils import DEFAULT_IGNORE_DIRS, DEFAULT_IGNORE_EXTS, is_binary_file, redact_text, truncate
 
 STACK_INDICATORS = {
     'Python': ['pyproject.toml', 'requirements.txt', 'setup.py', 'setup.cfg', 'Pipfile', 'poetry.lock', 'manage.py', 'main.py', 'app.py'],
@@ -67,7 +67,7 @@ def main():
     args = parser.parse_args()
 
     base_path = os.path.abspath(args.path)
-    output = [f"Repository Map for: {base_path}"]
+    output = [f"Repository Map for: {redact_text(base_path)}"]
     
     file_counts = defaultdict(int)
     stack_detected = set()
@@ -133,19 +133,19 @@ def main():
      
     output.append("\nTop Key Files:")
     for f in sorted(file_list, key=file_rank)[:args.max_files]:
-        output.append(f"  {f}")
+        output.append(f"  {redact_text(f)}")
         
     output.append("\nFile Extension Counts:")
     for ext, count in sorted(file_counts.items(), key=lambda x: -x[1])[:10]:
         output.append(f"  {ext if ext else '[no ext]'}: {count}")
         
     if ignored_dirs:
-        output.append(f"\nIgnored directories: {', '.join(sorted(list(ignored_dirs))[:20])}")
+        output.append(f"\nIgnored directories: {redact_text(', '.join(sorted(ignored_dirs)[:20]))}")
         
     if args.show_large_files and large_files:
         output.append("\nLarge Files:")
         for f, size in sorted(large_files, key=lambda x: -x[1])[:10]:
-            output.append(f"  {f} ({size:.2f} MB)")
+            output.append(f"  {redact_text(f)} ({size:.2f} MB)")
             
     final_output = truncate('\n'.join(output), args.max_chars)
     print(final_output)

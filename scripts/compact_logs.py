@@ -71,9 +71,9 @@ def main():
 
             if filepath != '-' and args.tail > 0:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = list(deque(f, maxlen=args.tail))
+                    lines = deque(enumerate(f, 1), maxlen=args.tail)
                 snippets = collect_match_snippets(
-                    numbered_lines(lines),
+                    lines,
                     line_matches,
                     context=args.context,
                     limit=args.limit - len(matches),
@@ -93,7 +93,7 @@ def main():
             matches.append((filepath, f"Skipped unreadable file: {compact_error(filepath, exc)}"))
         if len(matches) >= args.limit: break
 
-    output = [f"Scanned {len(files_to_scan)} files. Found {len(matches)} matches."]
+    output = [f"Scanned {len(files_to_scan)} files. Match groups: {len(matches)}."]
     for f, c in matches:
         output.append(f"\n[{f}]\n{c}")
         

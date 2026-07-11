@@ -90,7 +90,7 @@ def main():
         if len(matches) >= args.limit:
             break
 
-    output = [f"Scanned {total_scanned} files. Found {len(matches)} matches."]
+    output = [f"Scanned {total_scanned} files. Match groups: {len(matches)}."]
     if skipped:
         output.append(f"Skipped {len(skipped)} unreadable files. First: {skipped[0]}")
     current_file = None

@@ -50,7 +50,7 @@ def build_next_steps(path: str, diff_summary: str, scan_summary: str | None) -> 
         )
         steps.append("  - Then outline.py <likely_file>, then safe_read.py <likely_file> --start N --end M")
 
-    if scan_summary and re.search(r"Found\s+\d+\s+matches", scan_summary):
+    if scan_summary and re.search(r"Match groups:\s*[1-9]\d*", scan_summary):
         steps.append("- Refine matched logs before reading full files:")
         steps.append("  - scan_errors.py <path> --context 2 --limit 30 --max-output-chars 12000")
 
@@ -63,31 +63,37 @@ def main() -> None:
     parser.add_argument("--max-chars", "--max-output-chars", dest="max_chars", type=int, default=12000)
     parser.add_argument("--scan-errors", action="store_true", help="Append compact error scan")
     args = parser.parse_args()
+    if args.max_chars <= 0:
+        parser.error("--max-output-chars must be greater than zero")
 
     path = os.path.abspath(args.path)
+    section_budget = max(256, args.max_chars // (3 if args.scan_errors else 2))
     diff_section = helper(
         "diff_summary.py",
         path,
-        ["--max-output-chars", str(args.max_chars)],
+        ["--max-output-chars", str(section_budget)],
         "Git Diff Summary",
     )
-    sections = [
-        f"Agent Context: {path}",
-        helper("repo_map.py", path, ["--max-output-chars", str(args.max_chars)], "Repository Map"),
-        diff_section,
-    ]
 
     scan_section: str | None = None
     if args.scan_errors:
         scan_section = helper(
             "scan_errors.py",
             path,
-            ["--limit", "30", "--context", "1", "--max-output-chars", str(args.max_chars)],
+            ["--limit", "30", "--context", "1", "--max-output-chars", str(section_budget)],
             "Error Scan",
         )
-        sections.append(scan_section)
 
-    sections.append(build_next_steps(path, diff_section, scan_section))
+    sections = [
+        f"Agent Context: {redact_text(path)}",
+        diff_section,
+        build_next_steps(path, diff_section, scan_section),
+    ]
+    if scan_section:
+        sections.append(scan_section)
+    sections.append(
+        helper("repo_map.py", path, ["--max-output-chars", str(section_budget)], "Repository Map")
+    )
     print(truncate("\n\n".join(section for section in sections if section), args.max_chars))
 
 

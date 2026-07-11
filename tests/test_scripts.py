@@ -70,10 +70,25 @@ class ScriptSmokeTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Scanned 1 files. Found 1 matches.", result.stdout)
+        self.assertIn("Scanned 1 files. Match groups: 1.", result.stdout)
         self.assertIn("--- stdin ---", result.stdout)
         self.assertIn(">> 2: ERROR token=****", result.stdout)
         self.assertNotIn("abc123", result.stdout)
+
+    def test_safe_read_marks_consecutive_matches_in_one_group(self):
+        result = run_script(
+            "safe_read.py",
+            "-",
+            "--find",
+            "ERROR",
+            "--context",
+            "1",
+            input_text="ERROR first\nERROR second\nok\n",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(">> 1: ERROR first", result.stdout)
+        self.assertIn(">> 2: ERROR second", result.stdout)
 
     def test_compact_logs_stdin_context(self):
         result = run_script(
@@ -87,10 +102,20 @@ class ScriptSmokeTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Scanned 1 files. Found 1 matches.", result.stdout)
+        self.assertIn("Scanned 1 files. Match groups: 1.", result.stdout)
         self.assertIn("   1: info token=****", result.stdout)
         self.assertIn(">> 2: error crash", result.stdout)
         self.assertNotIn("abc123", result.stdout)
+
+    def test_compact_logs_tail_preserves_original_line_numbers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "app.log"
+            path.write_text("one\ntwo\nerror three\nfour\nerror five\n", encoding="utf-8")
+            result = run_script("compact_logs.py", str(path), "--tail", "3", "--keyword", "error")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(">> 3: error three", result.stdout)
+        self.assertIn(">> 5: error five", result.stdout)
 
     def test_summarize_tests_streams_failure_context(self):
         result = run_script(
@@ -198,6 +223,7 @@ class ScriptSmokeTests(unittest.TestCase):
             base = Path(tmp)
             (base / "b.py").write_text("print('b')\n", encoding="utf-8")
             (base / "a.py").write_text("print('a')\n", encoding="utf-8")
+            (base / "token=do-not-print.py").write_text("x = 1\n", encoding="utf-8")
             (base / "node_modules").mkdir()
             (base / "node_modules" / "ignored.js").write_text("x\n", encoding="utf-8")
 
@@ -208,6 +234,7 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(first.stdout, second.stdout)
         self.assertLess(first.stdout.index("a.py"), first.stdout.index("b.py"))
         self.assertNotIn("ignored.js", first.stdout)
+        self.assertNotIn("do-not-print", first.stdout)
         self.assertIn("Stack Detected: Python", first.stdout)
 
     def test_agent_context_reports_repo_and_git_without_secrets(self):
@@ -237,6 +264,26 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("Next Token-Safe Steps", result.stdout)
         self.assertIn("safe_read.py", result.stdout)
         self.assertIn("file.txt", result.stdout)
+
+    def test_agent_context_preserves_actions_with_small_output_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            src = repo / "src"
+            src.mkdir()
+            for index in range(40):
+                (src / f"long_feature_module_name_{index:03d}.py").write_text("x = 1\n", encoding="utf-8")
+            git(repo, "add", "src")
+            git(repo, "commit", "-m", "add modules")
+            (repo / "file.txt").write_text("old\nnew\n", encoding="utf-8")
+
+            result = run_script("agent_context.py", str(repo), "--max-output-chars", "1000")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLessEqual(len(result.stdout.rstrip("\n")), 1000)
+        self.assertIn("Git Diff Summary", result.stdout)
+        self.assertIn("file.txt", result.stdout)
+        self.assertIn("Next Token-Safe Steps", result.stdout)
 
     def test_agent_context_recommends_symbol_search_when_clean(self):
         with tempfile.TemporaryDirectory() as tmp:
