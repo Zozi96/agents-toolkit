@@ -1,10 +1,11 @@
 # Agents Toolkit
 
-Global instruction installer for Codex, Claude Code, Pi Agent, and Antigravity CLI.
+Official Codex plugin plus a token-efficient installer for Claude Code, Pi Agent, and Antigravity CLI.
 
 It installs:
 
-- `AGENTS.md` to `~/.codex/AGENTS.md`
+- a Codex `SessionStart` hook to `~/.codex/hooks.json`
+- hook launchers to `~/.agents/hooks/`
 - `AGENTS.md` to `~/.claude/CLAUDE.md`
 - `AGENTS.md` to `~/.pi/agent/AGENTS.md`
 - `AGENTS.md` to `~/.gemini/GEMINI.md`
@@ -12,6 +13,35 @@ It installs:
 - `token-efficient-repo-work` to `~/.codex/skills/token-efficient-repo-work/`
 
 Existing files are backed up before overwrite with `.bak.YYYYMMDD-HHMMSS`. Unchanged files are skipped.
+
+Codex no longer receives a toolkit-managed `~/.codex/AGENTS.md`. During migration, the installer removes only the existing `<!-- agents-toolkit:start -->` block and preserves any unrelated content.
+
+## Codex Plugin Install
+
+Install from GitHub:
+
+```bash
+codex plugin marketplace add Zozi96/agents-toolkit --ref main
+codex plugin add token-efficient-repo-work@agents-toolkit
+```
+
+For local development from this repository:
+
+```bash
+codex plugin marketplace add .
+codex plugin add token-efficient-repo-work@agents-toolkit
+```
+
+Update an existing installation:
+
+```bash
+codex plugin marketplace upgrade agents-toolkit
+codex plugin add token-efficient-repo-work@agents-toolkit
+```
+
+Start a new Codex task after installation. Review and trust the bundled `SessionStart` hook with `/hooks`; plugin installation does not automatically trust command hooks.
+
+The plugin is self-contained under `plugins/token-efficient-repo-work/`. Run `python3 scripts/sync_plugin.py` after changing canonical helpers, hooks, or the skill.
 
 ## Remote Install
 
@@ -70,14 +100,15 @@ $raw = "https://raw.githubusercontent.com/Zozi96/agents-toolkit/main"
 - Antigravity global rules use `~/.gemini/GEMINI.md`.
 - Antigravity shared skills are separate from these Python helpers.
 - Python helpers are plain scripts used by the global rules to reduce token waste when inspecting repos, files, logs, test output, JSON, CSV, TSV, JSONL, and NDJSON.
+- The Codex hook runs on `startup`, `resume`, `clear`, and `compact`. It injects compact workflow rules and up to 6,000 characters of redacted repository context without writing into the repository.
 - The Codex skill loads the inspection workflow only when relevant and routes work to the installed helpers without duplicating them.
 - `safe_read.py` reads targeted line ranges, tails, heads, or search snippets with secret redaction by default.
 
 ## Token-Saving Model
 
-`AGENTS.md` is intentionally compact because it is installed into each coding
-agent's global instruction context. Longer explanations and recipes live here
-instead of in the runtime rules.
+The Codex hook replaces persistent toolkit instructions in `AGENTS.md`. It runs
+`agent_context.py` at the Git root and injects only compact, redacted context.
+`AGENTS.md` remains compact for Claude Code, Pi Agent, and Antigravity.
 
 Recommended inspection ladder:
 

@@ -7,15 +7,20 @@ usage() {
   cat <<'USAGE'
 Usage: ./install-agents.sh [--dry-run]
 
-Installs global agent instructions, Python helpers, and the Codex skill.
+Installs a global Codex hook, Python helpers, the Codex skill, and legacy
+instruction files for other supported agents.
 
 Targets:
-  ~/.codex/AGENTS.md
+  ~/.codex/hooks.json
+  ~/.agents/hooks/session-start.{py,ps1}
   ~/.claude/CLAUDE.md
   ~/.pi/agent/AGENTS.md
   ~/.gemini/GEMINI.md
   ~/.agents/scripts/*.py
   ~/.codex/skills/token-efficient-repo-work/
+
+The installer removes only the old agents-toolkit managed block from
+~/.codex/AGENTS.md. Other content is preserved.
 USAGE
 }
 
@@ -90,6 +95,34 @@ install_md() {
   rm -f "$tmp"
 }
 
+install_hooks_config() {
+  local tmp
+  tmp="$(mktemp)"
+  python3 "${SCRIPTS_SRC}/merge_hooks.py" "${HOOKS_SRC}/hooks.json" "${HOME}/.codex/hooks.json" "$tmp"
+  install_file "$tmp" "${HOME}/.codex/hooks.json"
+  rm -f "$tmp"
+}
+
+remove_codex_agents_block() {
+  local dest="${HOME}/.codex/AGENTS.md"
+  local tmp
+  [ -e "$dest" ] || return 0
+  tmp="$(mktemp)"
+  python3 "${SCRIPTS_SRC}/merge_md_blocks.py" --remove "$dest" "$tmp"
+  if cmp -s "$tmp" "$dest"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  if [ ! -s "$tmp" ]; then
+    backup_if_changed "$tmp" "$dest" || true
+    run rm -f "$dest"
+  else
+    install_file "$tmp" "$dest"
+  fi
+  rm -f "$tmp"
+  log "Removed agents-toolkit block: $dest"
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run)
@@ -110,14 +143,18 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 AGENTS_SRC="${SCRIPT_DIR}/AGENTS.md"
 SCRIPTS_SRC="${SCRIPT_DIR}/scripts"
 SKILL_SRC="${SCRIPT_DIR}/skills/token-efficient-repo-work"
+HOOKS_SRC="${SCRIPT_DIR}/hooks"
 
 [ -f "$AGENTS_SRC" ] || die "Missing ${AGENTS_SRC}"
 [ -d "$SCRIPTS_SRC" ] || die "Missing ${SCRIPTS_SRC}"
 [ -f "${SKILL_SRC}/SKILL.md" ] || die "Missing ${SKILL_SRC}/SKILL.md"
 [ -f "${SKILL_SRC}/agents/openai.yaml" ] || die "Missing ${SKILL_SRC}/agents/openai.yaml"
+[ -f "${HOOKS_SRC}/hooks.json" ] || die "Missing ${HOOKS_SRC}/hooks.json"
+[ -f "${HOOKS_SRC}/session-start.py" ] || die "Missing ${HOOKS_SRC}/session-start.py"
+[ -f "${HOOKS_SRC}/session-start.ps1" ] || die "Missing ${HOOKS_SRC}/session-start.ps1"
 find "$SCRIPTS_SRC" -maxdepth 1 -type f -name '*.py' -print -quit | grep -q . || die "No Python helper scripts found in ${SCRIPTS_SRC}"
+command -v python3 >/dev/null 2>&1 || die "Python 3 is required"
 
-install_md "$AGENTS_SRC" "${HOME}/.codex/AGENTS.md"
 install_md "$AGENTS_SRC" "${HOME}/.claude/CLAUDE.md"
 install_md "$AGENTS_SRC" "${HOME}/.pi/agent/AGENTS.md"
 install_md "$AGENTS_SRC" "${HOME}/.gemini/GEMINI.md"
@@ -129,8 +166,14 @@ for helper in "$SCRIPTS_SRC"/*.py; do
   run chmod +x "$helper_dest"
 done
 
+install_file "${HOOKS_SRC}/session-start.py" "${HOME}/.agents/hooks/session-start.py"
+run chmod +x "${HOME}/.agents/hooks/session-start.py"
+install_file "${HOOKS_SRC}/session-start.ps1" "${HOME}/.agents/hooks/session-start.ps1"
+install_hooks_config
+remove_codex_agents_block
+
 install_file "${SKILL_SRC}/SKILL.md" "${HOME}/.codex/skills/token-efficient-repo-work/SKILL.md"
 install_file "${SKILL_SRC}/agents/openai.yaml" "${HOME}/.codex/skills/token-efficient-repo-work/agents/openai.yaml"
 
 log "Done."
-log "Antigravity global rules installed at ~/.gemini/GEMINI.md; shared Antigravity skills use a separate path."
+log "Codex now uses the global SessionStart hook; ~/.codex/AGENTS.md is no longer managed by this toolkit."

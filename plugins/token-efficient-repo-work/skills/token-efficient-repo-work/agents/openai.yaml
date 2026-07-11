@@ -1,0 +1,4 @@
+interface:
+  display_name: "Token-Efficient Repo Work"
+  short_description: "Inspect repositories with compact, precise context"
+  default_prompt: "Use $token-efficient-repo-work to inspect this repository with minimal context and precise evidence."

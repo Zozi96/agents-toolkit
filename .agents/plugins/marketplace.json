@@ -1,0 +1,20 @@
+{
+  "name": "agents-toolkit",
+  "interface": {
+    "displayName": "Agents Toolkit"
+  },
+  "plugins": [
+    {
+      "name": "token-efficient-repo-work",
+      "source": {
+        "source": "local",
+        "path": "./plugins/token-efficient-repo-work"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

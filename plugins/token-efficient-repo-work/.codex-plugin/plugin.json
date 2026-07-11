@@ -1,0 +1,22 @@
+{
+  "name": "token-efficient-repo-work",
+  "version": "0.1.0",
+  "description": "Inject compact repository context and route large outputs through token-capped helpers.",
+  "author": {
+    "name": "Zozi"
+  },
+  "repository": "https://github.com/Zozi96/agents-toolkit",
+  "keywords": ["codex", "tokens", "repository", "context", "hooks"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Token Efficient Repo Work",
+    "shortDescription": "Compact repository context with token-safe helpers",
+    "longDescription": "Adds a SessionStart hook, a repository inspection skill, and redacting helpers for code, logs, tests, diffs, JSON, and tabular data.",
+    "developerName": "Zozi",
+    "category": "Productivity",
+    "capabilities": ["Repository analysis"],
+    "defaultPrompt": [
+      "Use $token-efficient-repo-work to inspect this repository with minimal context."
+    ]
+  }
+}

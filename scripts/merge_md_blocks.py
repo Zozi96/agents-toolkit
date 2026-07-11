@@ -13,8 +13,10 @@ wrapped content plus any recognized plugin marker blocks from DEST:
   <!-- name:start --> ... <!-- name:end -->
   <!-- name --> ... <!-- name -->   (same comment opens and closes)
 
-Usage: merge_md_blocks.py SRC DEST [OUT]
-Writes merged content to OUT, or stdout if OUT is omitted.
+Usage:
+  merge_md_blocks.py SRC DEST [OUT]
+  merge_md_blocks.py --remove DEST [OUT]
+Writes merged/cleaned content to OUT, or stdout if OUT is omitted.
 """
 import re
 import sys
@@ -59,7 +61,30 @@ def merge(new_text, old_text):
     return wrapped + "\n\n" + "\n\n".join(kept) + "\n"
 
 
+def remove_managed(text):
+    match = MANAGED_RE.search(text)
+    if not match:
+        return text
+    before = text[: match.start()].rstrip("\n")
+    after = text[match.end() :].lstrip("\n")
+    cleaned = before + ("\n\n" if before and after else "") + after
+    return cleaned if not cleaned or cleaned.endswith("\n") else cleaned + "\n"
+
+
 def main(argv):
+    if len(argv) in (3, 4) and argv[1] == "--remove":
+        dest = argv[2]
+        try:
+            with open(dest, encoding="utf-8") as fh:
+                cleaned = remove_managed(fh.read())
+        except OSError:
+            cleaned = ""
+        if len(argv) == 4:
+            with open(argv[3], "w", encoding="utf-8") as fh:
+                fh.write(cleaned)
+        else:
+            sys.stdout.write(cleaned)
+        return 0
     if len(argv) < 3 or len(argv) > 4:
         print((__doc__ or "").strip(), file=sys.stderr)
         return 2

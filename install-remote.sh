@@ -8,11 +8,15 @@ FILES=(
   "install-agents.sh"
   "skills/token-efficient-repo-work/SKILL.md"
   "skills/token-efficient-repo-work/agents/openai.yaml"
+  "hooks/hooks.json"
+  "hooks/session-start.py"
+  "hooks/session-start.ps1"
   "scripts/_agent_utils.py"
   "scripts/agent_context.py"
   "scripts/compact_logs.py"
   "scripts/diff_summary.py"
   "scripts/merge_md_blocks.py"
+  "scripts/merge_hooks.py"
   "scripts/outline.py"
   "scripts/repo_map.py"
   "scripts/run_capped.py"
@@ -27,8 +31,8 @@ usage() {
   cat <<'USAGE'
 Usage: install-remote.sh [--raw-base URL] [--dry-run]
 
-Downloads agents-toolkit files to a temporary directory, then installs global
-agent instruction files and Python helper scripts.
+Downloads agents-toolkit files to a temporary directory, then installs the
+global Codex hook, skill, helpers, and other supported agent instructions.
 
 Examples:
   curl -fsSL https://raw.githubusercontent.com/Zozi96/agents-toolkit/main/install-remote.sh | bash

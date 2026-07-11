@@ -88,21 +88,50 @@ function Install-AgentsMd {
         [string]$Destination
     )
 
-    $python = Get-Command python3 -ErrorAction SilentlyContinue
-    if (-not $python) {
-        $python = Get-Command python -ErrorAction SilentlyContinue
-    }
-    if (-not $python) {
-        Install-File -Source $Source -Destination $Destination
-        return
-    }
-
     # Only the <!-- agents-toolkit --> managed section is replaced; anything
     # other tools wrote to dest (plugin blocks, MCP/skill notes) is kept as-is.
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
-        & $python.Source (Join-Path $scriptsSource "merge_md_blocks.py") $Source $Destination $tmp
+        & $script:python.Source @script:pythonArgs (Join-Path $scriptsSource "merge_md_blocks.py") $Source $Destination $tmp
         Install-File -Source $tmp -Destination $Destination
+    }
+    finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Install-HooksConfig {
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+        & $script:python.Source @script:pythonArgs (Join-Path $scriptsSource "merge_hooks.py") (Join-Path $hooksSource "hooks.json") (Join-Path $HOME ".codex/hooks.json") $tmp
+        Install-File -Source $tmp -Destination (Join-Path $HOME ".codex/hooks.json")
+    }
+    finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Remove-CodexAgentsBlock {
+    $destination = Join-Path $HOME ".codex/AGENTS.md"
+    if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) {
+        return
+    }
+    $tmp = [System.IO.Path]::GetTempFileName()
+    try {
+        & $script:python.Source @script:pythonArgs (Join-Path $scriptsSource "merge_md_blocks.py") --remove $destination $tmp
+        if (Test-SameFile -Source $tmp -Destination $destination) {
+            return
+        }
+        if ((Get-Item -LiteralPath $tmp).Length -eq 0) {
+            Backup-IfChanged -Source $tmp -Destination $destination
+            Invoke-Step -Description "Remove-Item '$destination'" -Action {
+                Remove-Item -LiteralPath $destination -Force
+            }
+        }
+        else {
+            Install-File -Source $tmp -Destination $destination
+        }
+        Write-Step "Removed agents-toolkit block: $destination"
     }
     finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
@@ -113,6 +142,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $agentsSource = Join-Path $scriptDir "AGENTS.md"
 $scriptsSource = Join-Path $scriptDir "scripts"
 $skillSource = Join-Path $scriptDir "skills/token-efficient-repo-work"
+$hooksSource = Join-Path $scriptDir "hooks"
 
 if (-not (Test-Path -LiteralPath $agentsSource -PathType Leaf)) {
     throw "Missing $agentsSource"
@@ -130,12 +160,29 @@ if (-not (Test-Path -LiteralPath (Join-Path $skillSource "agents/openai.yaml") -
     throw "Missing token-efficient-repo-work/agents/openai.yaml"
 }
 
+foreach ($hookFile in @("hooks.json", "session-start.py", "session-start.ps1")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $hooksSource $hookFile) -PathType Leaf)) {
+        throw "Missing hooks/$hookFile"
+    }
+}
+
 $helpers = Get-ChildItem -LiteralPath $scriptsSource -Filter "*.py" -File
 if ($helpers.Count -eq 0) {
     throw "No Python helper scripts found in $scriptsSource"
 }
 
-Install-AgentsMd -Source $agentsSource -Destination (Join-Path $HOME ".codex/AGENTS.md")
+$python = Get-Command py -ErrorAction SilentlyContinue
+if (-not $python) {
+    $python = Get-Command python -ErrorAction SilentlyContinue
+}
+if (-not $python) {
+    $python = Get-Command python3 -ErrorAction SilentlyContinue
+}
+if (-not $python) {
+    throw "Python 3 is required"
+}
+$pythonArgs = if ($python.Name -eq "py" -or $python.Name -eq "py.exe") { @("-3") } else { @() }
+
 Install-AgentsMd -Source $agentsSource -Destination (Join-Path $HOME ".claude/CLAUDE.md")
 Install-AgentsMd -Source $agentsSource -Destination (Join-Path $HOME ".pi/agent/AGENTS.md")
 Install-AgentsMd -Source $agentsSource -Destination (Join-Path $HOME ".gemini/GEMINI.md")
@@ -149,9 +196,15 @@ foreach ($helper in $helpers) {
     Install-File -Source $helper.FullName -Destination (Join-Path $helpersDest $helper.Name)
 }
 
+$hooksDest = Join-Path $HOME ".agents/hooks"
+Install-File -Source (Join-Path $hooksSource "session-start.py") -Destination (Join-Path $hooksDest "session-start.py")
+Install-File -Source (Join-Path $hooksSource "session-start.ps1") -Destination (Join-Path $hooksDest "session-start.ps1")
+Install-HooksConfig
+Remove-CodexAgentsBlock
+
 $skillDest = Join-Path $HOME ".codex/skills/token-efficient-repo-work"
 Install-File -Source (Join-Path $skillSource "SKILL.md") -Destination (Join-Path $skillDest "SKILL.md")
 Install-File -Source (Join-Path $skillSource "agents/openai.yaml") -Destination (Join-Path $skillDest "agents/openai.yaml")
 
 Write-Step "Done."
-Write-Step "Antigravity global rules installed at ~/.gemini/GEMINI.md; shared Antigravity skills use a separate path."
+Write-Step "Codex now uses the global SessionStart hook; ~/.codex/AGENTS.md is no longer managed by this toolkit."

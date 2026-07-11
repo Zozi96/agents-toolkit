@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -60,8 +61,52 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn('& $python @pythonArgs', instructions)
         self.assertIn("$token-efficient-repo-work", metadata)
 
+    def test_codex_plugin_package_is_self_contained_and_synced(self):
+        plugin = ROOT / "plugins/token-efficient-repo-work"
+        manifest = json.loads((plugin / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
+        marketplace = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
+        hooks = json.loads((plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["name"], "token-efficient-repo-work")
+        self.assertEqual(manifest["skills"], "./skills/")
+        self.assertIsInstance(manifest["interface"]["defaultPrompt"], list)
+        self.assertEqual(marketplace["name"], "agents-toolkit")
+        self.assertEqual(
+            marketplace["plugins"][0]["source"]["path"],
+            "./plugins/token-efficient-repo-work",
+        )
+        handler = hooks["hooks"]["SessionStart"][0]["hooks"][0]
+        self.assertIn("${PLUGIN_ROOT}", handler["command"])
+        self.assertIn("$env:PLUGIN_ROOT", handler["commandWindows"])
+        self.assertEqual(
+            (plugin / "skills/token-efficient-repo-work/SKILL.md").read_bytes(),
+            (ROOT / "skills/token-efficient-repo-work/SKILL.md").read_bytes(),
+        )
+        for name in ("agent_context.py", "safe_read.py", "run_capped.py", "summarize_tests.py"):
+            self.assertEqual((plugin / "scripts" / name).read_bytes(), (ROOT / "scripts" / name).read_bytes())
+
+    def test_plugin_session_start_hook_uses_bundled_helpers(self):
+        plugin = ROOT / "plugins/token-efficient-repo-work"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            init_repo(repo)
+            result = subprocess.run(
+                [PYTHON, str(plugin / "hooks/session-start.py")],
+                input=json.dumps({"cwd": str(repo), "hook_event_name": "SessionStart"}),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, "HOME": str(Path(tmp) / "empty-home"), "PLUGIN_ROOT": str(plugin)},
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Repository Context", context)
+
     @unittest.skipUnless(shutil.which("bash"), "bash required")
-    def test_local_installer_dry_run_includes_codex_skill(self):
+    def test_local_installer_dry_run_includes_codex_hook_and_skill(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
                 ["bash", str(ROOT / "install-agents.sh"), "--dry-run"],
@@ -73,7 +118,88 @@ class ScriptSmokeTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(".codex/hooks.json", result.stdout)
+        self.assertIn(".agents/hooks/session-start.py", result.stdout)
         self.assertIn(".codex/skills/token-efficient-repo-work/SKILL.md", result.stdout)
+        self.assertNotIn("Installed: " + str(Path(tmp) / ".codex/AGENTS.md"), result.stdout)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell required")
+    def test_powershell_installer_dry_run_includes_codex_hook(self):
+        result = subprocess.run(
+            ["pwsh", "-NoProfile", "-File", str(ROOT / "install-agents.ps1"), "-DryRun"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(".codex/hooks.json", result.stdout)
+        self.assertIn(".agents/hooks/session-start.py", result.stdout)
+
+    def test_session_start_hook_injects_compact_repo_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            home = base / "home"
+            repo = base / "repo"
+            shutil.copytree(ROOT / "scripts", home / ".agents/scripts")
+            repo.mkdir()
+            init_repo(repo)
+            result = subprocess.run(
+                [PYTHON, str(ROOT / "hooks/session-start.py")],
+                input=json.dumps({"cwd": str(repo), "hook_event_name": "SessionStart"}),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, "HOME": str(home)},
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)["hookSpecificOutput"]
+        self.assertEqual(output["hookEventName"], "SessionStart")
+        self.assertIn("Token-efficient repository workflow", output["additionalContext"])
+        self.assertIn("Repository Context", output["additionalContext"])
+        self.assertLess(len(output["additionalContext"]), 7500)
+
+    def test_merge_hooks_preserves_foreign_hooks_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            destination = base / "hooks.json"
+            first = base / "first.json"
+            second = base / "second.json"
+            destination.write_text(
+                json.dumps(
+                    {
+                        "custom": True,
+                        "hooks": {
+                            "Stop": [{"hooks": [{"type": "command", "command": "echo done"}]}],
+                            "SessionStart": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "python3 ~/.agents/hooks/session-start.py --old",
+                                        }
+                                    ]
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = run_script("merge_hooks.py", str(ROOT / "hooks/hooks.json"), str(destination), str(first))
+            again = run_script("merge_hooks.py", str(ROOT / "hooks/hooks.json"), str(first), str(second))
+
+            merged = json.loads(first.read_text(encoding="utf-8"))
+            session = merged["hooks"]["SessionStart"]
+            commands = [handler["command"] for group in session for handler in group["hooks"]]
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertTrue(merged["custom"])
+            self.assertIn("Stop", merged["hooks"])
+            self.assertEqual(commands, ["python3 ~/.agents/hooks/session-start.py"])
+            self.assertEqual(first.read_text(encoding="utf-8"), second.read_text(encoding="utf-8"))
 
     def test_safe_read_redacts_and_marks_matches(self):
         result = run_script(
@@ -465,6 +591,18 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("trailing plugin text without any markers", result.stdout)
         self.assertIn("<!-- agents-toolkit:start -->\n# New rules\n<!-- agents-toolkit:end -->", result.stdout)
         self.assertNotIn("# Old rules", result.stdout)
+
+    def test_merge_md_blocks_removes_only_managed_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "AGENTS.md"
+            destination.write_text(
+                "before\n\n<!-- agents-toolkit:start -->\nold toolkit\n<!-- agents-toolkit:end -->\n\nafter\n",
+                encoding="utf-8",
+            )
+            result = run_script("merge_md_blocks.py", "--remove", str(destination))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "before\n\nafter\n")
 
 
 if __name__ == "__main__":

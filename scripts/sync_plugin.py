@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Refresh the self-contained Codex plugin from canonical toolkit files."""
+import json
+import shutil
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PLUGIN = ROOT / "plugins" / "token-efficient-repo-work"
+HELPERS = (
+    "_agent_utils.py",
+    "agent_context.py",
+    "compact_logs.py",
+    "diff_summary.py",
+    "outline.py",
+    "repo_map.py",
+    "run_capped.py",
+    "safe_read.py",
+    "scan_errors.py",
+    "summarize_data.py",
+    "summarize_json.py",
+    "summarize_tests.py",
+)
+
+
+def copy(source, destination):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+
+def main():
+    skill = PLUGIN / "skills" / "token-efficient-repo-work"
+    copy(ROOT / "skills/token-efficient-repo-work/SKILL.md", skill / "SKILL.md")
+    copy(ROOT / "skills/token-efficient-repo-work/agents/openai.yaml", skill / "agents/openai.yaml")
+    copy(ROOT / "hooks/session-start.py", PLUGIN / "hooks/session-start.py")
+    copy(ROOT / "hooks/session-start.ps1", PLUGIN / "hooks/session-start.ps1")
+    for helper in HELPERS:
+        copy(ROOT / "scripts" / helper, PLUGIN / "scripts" / helper)
+    hooks = {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": 'python3 "${PLUGIN_ROOT}/hooks/session-start.py"',
+                            "commandWindows": "pwsh -NoProfile -Command \"& (Join-Path $env:PLUGIN_ROOT 'hooks/session-start.ps1')\"",
+                            "timeout": 15,
+                            "statusMessage": "Loading token-safe repository context",
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    (PLUGIN / "hooks/hooks.json").write_text(json.dumps(hooks, indent=2) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
