@@ -6,6 +6,8 @@ RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/Zozi96/agents-toolkit/ma
 FILES=(
   "AGENTS.md"
   "install-agents.sh"
+  "skills/token-efficient-repo-work/SKILL.md"
+  "skills/token-efficient-repo-work/agents/openai.yaml"
   "scripts/_agent_utils.py"
   "scripts/agent_context.py"
   "scripts/compact_logs.py"

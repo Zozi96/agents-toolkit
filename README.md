@@ -9,6 +9,7 @@ It installs:
 - `AGENTS.md` to `~/.pi/agent/AGENTS.md`
 - `AGENTS.md` to `~/.gemini/GEMINI.md`
 - Python helpers from `scripts/*.py` to `~/.agents/scripts/`
+- `token-efficient-repo-work` to `~/.codex/skills/token-efficient-repo-work/`
 
 Existing files are backed up before overwrite with `.bak.YYYYMMDD-HHMMSS`. Unchanged files are skipped.
 
@@ -69,6 +70,7 @@ $raw = "https://raw.githubusercontent.com/Zozi96/agents-toolkit/main"
 - Antigravity global rules use `~/.gemini/GEMINI.md`.
 - Antigravity shared skills are separate from these Python helpers.
 - Python helpers are plain scripts used by the global rules to reduce token waste when inspecting repos, files, logs, test output, JSON, CSV, TSV, JSONL, and NDJSON.
+- The Codex skill loads the inspection workflow only when relevant and routes work to the installed helpers without duplicating them.
 - `safe_read.py` reads targeted line ranges, tails, heads, or search snippets with secret redaction by default.
 
 ## Token-Saving Model

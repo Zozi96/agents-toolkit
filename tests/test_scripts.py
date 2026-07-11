@@ -1,3 +1,5 @@
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -43,6 +45,35 @@ def init_repo(path):
 class ScriptSmokeTests(unittest.TestCase):
     def test_agents_rules_stay_compact(self):
         self.assertLessEqual((ROOT / "AGENTS.md").stat().st_size, 3500)
+
+    def test_token_efficient_skill_is_complete_and_compact(self):
+        skill = ROOT / "skills" / "token-efficient-repo-work"
+        instructions = (skill / "SKILL.md").read_text(encoding="utf-8")
+        metadata = (skill / "agents" / "openai.yaml").read_text(encoding="utf-8")
+
+        self.assertNotIn("TODO", instructions)
+        self.assertLessEqual(len(instructions), 6000)
+        self.assertIn("name: token-efficient-repo-work", instructions)
+        self.assertIn("## Windows PowerShell", instructions)
+        self.assertIn('Join-Path $helpers "agent_context.py"', instructions)
+        self.assertIn('Get-Command py -ErrorAction SilentlyContinue', instructions)
+        self.assertIn('& $python @pythonArgs', instructions)
+        self.assertIn("$token-efficient-repo-work", metadata)
+
+    @unittest.skipUnless(shutil.which("bash"), "bash required")
+    def test_local_installer_dry_run_includes_codex_skill(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                ["bash", str(ROOT / "install-agents.sh"), "--dry-run"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={**os.environ, "HOME": tmp},
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(".codex/skills/token-efficient-repo-work/SKILL.md", result.stdout)
 
     def test_safe_read_redacts_and_marks_matches(self):
         result = run_script(

@@ -7,7 +7,7 @@ usage() {
   cat <<'USAGE'
 Usage: ./install-agents.sh [--dry-run]
 
-Installs global agent instruction files and Python helper scripts.
+Installs global agent instructions, Python helpers, and the Codex skill.
 
 Targets:
   ~/.codex/AGENTS.md
@@ -15,6 +15,7 @@ Targets:
   ~/.pi/agent/AGENTS.md
   ~/.gemini/GEMINI.md
   ~/.agents/scripts/*.py
+  ~/.codex/skills/token-efficient-repo-work/
 USAGE
 }
 
@@ -108,9 +109,12 @@ done
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 AGENTS_SRC="${SCRIPT_DIR}/AGENTS.md"
 SCRIPTS_SRC="${SCRIPT_DIR}/scripts"
+SKILL_SRC="${SCRIPT_DIR}/skills/token-efficient-repo-work"
 
 [ -f "$AGENTS_SRC" ] || die "Missing ${AGENTS_SRC}"
 [ -d "$SCRIPTS_SRC" ] || die "Missing ${SCRIPTS_SRC}"
+[ -f "${SKILL_SRC}/SKILL.md" ] || die "Missing ${SKILL_SRC}/SKILL.md"
+[ -f "${SKILL_SRC}/agents/openai.yaml" ] || die "Missing ${SKILL_SRC}/agents/openai.yaml"
 find "$SCRIPTS_SRC" -maxdepth 1 -type f -name '*.py' -print -quit | grep -q . || die "No Python helper scripts found in ${SCRIPTS_SRC}"
 
 install_md "$AGENTS_SRC" "${HOME}/.codex/AGENTS.md"
@@ -124,6 +128,9 @@ for helper in "$SCRIPTS_SRC"/*.py; do
   install_file "$helper" "$helper_dest"
   run chmod +x "$helper_dest"
 done
+
+install_file "${SKILL_SRC}/SKILL.md" "${HOME}/.codex/skills/token-efficient-repo-work/SKILL.md"
+install_file "${SKILL_SRC}/agents/openai.yaml" "${HOME}/.codex/skills/token-efficient-repo-work/agents/openai.yaml"
 
 log "Done."
 log "Antigravity global rules installed at ~/.gemini/GEMINI.md; shared Antigravity skills use a separate path."

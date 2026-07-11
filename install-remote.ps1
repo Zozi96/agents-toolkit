@@ -13,6 +13,8 @@ $RawBase = $RawBase.TrimEnd("/")
 $files = @(
     "AGENTS.md",
     "install-agents.ps1",
+    "skills/token-efficient-repo-work/SKILL.md",
+    "skills/token-efficient-repo-work/agents/openai.yaml",
     "scripts/_agent_utils.py",
     "scripts/agent_context.py",
     "scripts/compact_logs.py",

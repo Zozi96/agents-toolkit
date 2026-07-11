@@ -112,6 +112,7 @@ function Install-AgentsMd {
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $agentsSource = Join-Path $scriptDir "AGENTS.md"
 $scriptsSource = Join-Path $scriptDir "scripts"
+$skillSource = Join-Path $scriptDir "skills/token-efficient-repo-work"
 
 if (-not (Test-Path -LiteralPath $agentsSource -PathType Leaf)) {
     throw "Missing $agentsSource"
@@ -119,6 +120,14 @@ if (-not (Test-Path -LiteralPath $agentsSource -PathType Leaf)) {
 
 if (-not (Test-Path -LiteralPath $scriptsSource -PathType Container)) {
     throw "Missing $scriptsSource"
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $skillSource "SKILL.md") -PathType Leaf)) {
+    throw "Missing token-efficient-repo-work/SKILL.md"
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $skillSource "agents/openai.yaml") -PathType Leaf)) {
+    throw "Missing token-efficient-repo-work/agents/openai.yaml"
 }
 
 $helpers = Get-ChildItem -LiteralPath $scriptsSource -Filter "*.py" -File
@@ -139,6 +148,10 @@ Invoke-Step -Description "New-Item -ItemType Directory '$helpersDest'" -Action {
 foreach ($helper in $helpers) {
     Install-File -Source $helper.FullName -Destination (Join-Path $helpersDest $helper.Name)
 }
+
+$skillDest = Join-Path $HOME ".codex/skills/token-efficient-repo-work"
+Install-File -Source (Join-Path $skillSource "SKILL.md") -Destination (Join-Path $skillDest "SKILL.md")
+Install-File -Source (Join-Path $skillSource "agents/openai.yaml") -Destination (Join-Path $skillDest "agents/openai.yaml")
 
 Write-Step "Done."
 Write-Step "Antigravity global rules installed at ~/.gemini/GEMINI.md; shared Antigravity skills use a separate path."
