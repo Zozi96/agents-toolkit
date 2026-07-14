@@ -48,7 +48,7 @@ def main():
                             # Claude Code exports CLAUDE_PLUGIN_ROOT, Codex exports
                             # PLUGIN_ROOT; python3 may be plain python on Windows.
                             "command": '"$(command -v python3 || command -v python)" "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}/hooks/session-start.py"',
-                            "commandWindows": "pwsh -NoProfile -Command \"& (Join-Path $env:PLUGIN_ROOT 'hooks/session-start.ps1')\"",
+                            "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; & (Join-Path $r 'hooks/session-start.ps1')\"",
                             "timeout": 15,
                             "statusMessage": "Loading token-safe repository context",
                         }
