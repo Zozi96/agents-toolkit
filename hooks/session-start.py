@@ -7,12 +7,19 @@ import sys
 from pathlib import Path
 
 
-POLICY = """Token-efficient repository workflow:
-- Use the supplied Repository Context and its Next Token-Safe Steps before broad reads.
-- Prefer indexed code/search tools when available; otherwise use exact `rg`, then `outline.py` and `safe_read.py`.
-- Route unknown-size output, tests, logs, diffs, JSON, and tabular data through the bundled plugin helpers.
-- Redact secrets, keep scratch output under `~/.codex/tmp`, preserve user changes, and keep Git read-only unless authorized.
-- Make the smallest scoped change, run the smallest useful validation, and report paths, line references, status, and anything not validated."""
+POLICY = """Token-efficient repository workflow. Helpers live in `${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/scripts` (run with python3). Route by input:
+| Input | Helper |
+| repo orientation | agent_context.py |
+| file/dir structure | outline.py |
+| targeted file slice | safe_read.py |
+| unknown-size command | run_capped.py -- CMD |
+| test output | CMD 2>&1 \\| summarize_tests.py - |
+| git changes | diff_summary.py |
+| error-heavy logs | scan_errors.py / compact_logs.py |
+| JSON shape | summarize_json.py |
+| CSV/TSV/JSONL | summarize_data.py |
+Search exact symbols first (`rg -n "sym" . | head -c 12000`), read slices instead of whole files, and use the Repository Context below before broad reads.
+Redact secrets, keep scratch under `~/.codex/tmp`, keep Git read-only unless authorized, make the smallest scoped change, and report paths, line references, and anything not validated."""
 
 
 def git_root(cwd):
@@ -39,7 +46,7 @@ def repository_context(cwd):
         return ""
     try:
         result = subprocess.run(
-            [sys.executable, str(helper), root, "--max-output-chars", "6000"],
+            [sys.executable, str(helper), root, "--max-output-chars", "4500"],
             capture_output=True,
             text=True,
             timeout=12,

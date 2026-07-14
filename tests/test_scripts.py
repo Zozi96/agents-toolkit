@@ -91,7 +91,7 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(len(bundled), 12)
         for name in bundled:
             self.assertEqual((plugin / "scripts" / name).read_bytes(), (ROOT / "scripts" / name).read_bytes(), name)
-        for name in ("session-start.py", "session-start.ps1"):
+        for name in ("session-start.py", "session-start.ps1", "pre-tool-use.py", "pre-tool-use.ps1"):
             self.assertEqual((plugin / "hooks" / name).read_bytes(), (ROOT / "hooks" / name).read_bytes(), name)
 
     def test_claude_plugin_package_is_registered(self):
@@ -108,6 +108,10 @@ class ScriptSmokeTests(unittest.TestCase):
         entry = hooks["hooks"]["SessionStart"][0]
         self.assertEqual(entry["matcher"], "startup|clear|compact")
         self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}", entry["hooks"][0]["command"])
+        pre_tool = hooks["hooks"]["PreToolUse"][0]
+        self.assertEqual(pre_tool["matcher"], "Bash")
+        self.assertIn("pre-tool-use.py", pre_tool["hooks"][0]["command"])
+        self.assertIn("pre-tool-use.ps1", pre_tool["hooks"][0]["commandWindows"])
 
     def test_plugin_session_start_hook_accepts_claude_plugin_root(self):
         plugin = ROOT / "plugins/token-efficient-repo-work"
@@ -149,6 +153,79 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Repository Context", context)
+
+    def run_pre_tool_use(self, command, cwd="."):
+        result = subprocess.run(
+            [PYTHON, str(ROOT / "hooks/pre-tool-use.py")],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd)}),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def deny_reason(self, output):
+        decision = json.loads(output)["hookSpecificOutput"]
+        self.assertEqual(decision["permissionDecision"], "deny")
+        return decision["permissionDecisionReason"]
+
+    def test_pre_tool_use_denies_raw_test_runners_with_replacement(self):
+        reason = self.deny_reason(self.run_pre_tool_use("pytest -x tests/"))
+        self.assertIn("summarize_tests.py", reason)
+        self.assertIn("pytest -x tests/ 2>&1", reason)
+
+    def test_pre_tool_use_allows_summarized_and_capped_tests(self):
+        self.assertEqual(self.run_pre_tool_use("pytest 2>&1 | python3 scripts/summarize_tests.py -"), "")
+        self.assertEqual(self.run_pre_tool_use("pytest 2>&1 | tail -40"), "")
+
+    def test_pre_tool_use_denies_git_patch_dumps(self):
+        for command in ("git diff", "git show HEAD", "git log -p -3"):
+            self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use(command)), command)
+
+    def test_pre_tool_use_allows_capped_git_commands(self):
+        for command in ("git diff --stat", "git log --oneline -5", "git show --name-only HEAD", "git status"):
+            self.assertEqual(self.run_pre_tool_use(command), "", command)
+
+    def test_pre_tool_use_allows_stdout_redirects_and_file_at_rev(self):
+        for command in (
+            "pytest > out.txt 2>&1",
+            "git diff > patch.diff",
+            "cat a.sql b.sql > merged.sql",
+            "git show HEAD:README.md",
+            "git log --pretty=format:%h -5",
+        ):
+            self.assertEqual(self.run_pre_tool_use(command), "", command)
+        # stderr-only redirect is not a cap: stdout still dumps to the terminal
+        self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use("git diff 2> err.log")))
+
+    def test_pre_tool_use_routes_large_files_by_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            big_text = Path(tmp) / "big.log"
+            big_text.write_text("line\n" * 20000, encoding="utf-8")
+            big_json = Path(tmp) / "big.json"
+            big_json.write_text('{"k": "' + "v" * 60000 + '"}', encoding="utf-8")
+            small = Path(tmp) / "small.txt"
+            small.write_text("ok\n", encoding="utf-8")
+
+            reason = self.deny_reason(self.run_pre_tool_use(f"cat {big_text}", cwd=tmp))
+            self.assertIn("safe_read.py", reason)
+            self.assertIn("summarize_json.py", self.deny_reason(self.run_pre_tool_use("cat big.json", cwd=tmp)))
+            self.assertEqual(self.run_pre_tool_use("cat small.txt", cwd=tmp), "")
+            self.assertEqual(self.run_pre_tool_use(f"cat {big_text} | head -50", cwd=tmp), "")
+
+    def test_pre_tool_use_ignores_non_bash_tools(self):
+        result = subprocess.run(
+            [PYTHON, str(ROOT / "hooks/pre-tool-use.py")],
+            input=json.dumps({"tool_name": "Read", "tool_input": {"file_path": "x"}}),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
 
     def test_redaction_covers_quoted_keys_pem_and_bare_tokens(self):
         from _agent_utils import is_sensitive_key, redact_text

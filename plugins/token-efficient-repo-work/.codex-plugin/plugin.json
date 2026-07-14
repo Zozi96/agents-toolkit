@@ -1,6 +1,6 @@
 {
   "name": "token-efficient-repo-work",
-  "version": "0.2.0+codex.20260711074456",
+  "version": "0.3.0+codex.20260714165438",
   "description": "Inject compact repository context and route large outputs through token-capped helpers.",
   "author": {
     "name": "Zozi"
@@ -11,7 +11,7 @@
   "interface": {
     "displayName": "Token Efficient Repo Work",
     "shortDescription": "Compact repository context with token-safe helpers",
-    "longDescription": "Adds a SessionStart hook, a repository inspection skill, and redacting helpers for code, logs, tests, diffs, JSON, and tabular data.",
+    "longDescription": "Adds a SessionStart context hook, a PreToolUse hook that denies token-wasteful Bash commands with a capped replacement, a repository inspection skill, and redacting helpers for code, logs, tests, diffs, JSON, and tabular data.",
     "developerName": "Zozi",
     "category": "Productivity",
     "capabilities": ["Repository analysis"],

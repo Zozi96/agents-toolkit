@@ -27,6 +27,17 @@ jobs:
           $json = $out | ConvertFrom-Json
           if (-not $json.hookSpecificOutput.additionalContext) { throw "missing additionalContext" }
           if ($json.hookSpecificOutput.additionalContext -notmatch 'Repository Context') { throw "repository context was not generated" }
+      - name: PreToolUse hook runs via PowerShell wrapper
+        shell: pwsh
+        env:
+          CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}/plugins/token-efficient-repo-work
+        run: |
+          $deny = '{"tool_name":"Bash","tool_input":{"command":"pytest tests/"},"cwd":"."}' | & ./plugins/token-efficient-repo-work/hooks/pre-tool-use.ps1
+          if ($LASTEXITCODE -ne 0) { throw "hook exited $LASTEXITCODE" }
+          if (($deny | ConvertFrom-Json).hookSpecificOutput.permissionDecision -ne 'deny') { throw "raw pytest was not denied" }
+          $allow = '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":"."}' | & ./plugins/token-efficient-repo-work/hooks/pre-tool-use.ps1
+          if ($LASTEXITCODE -ne 0) { throw "hook exited $LASTEXITCODE" }
+          if ($allow) { throw "git status was wrongly intercepted" }
 
   test:
     runs-on: ubuntu-latest

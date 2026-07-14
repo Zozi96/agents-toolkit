@@ -48,13 +48,13 @@ codex plugin marketplace upgrade agents-toolkit
 codex plugin add token-efficient-repo-work@agents-toolkit
 ```
 
-Start a new Codex task after installation. Review and trust the bundled `SessionStart` hook with `/hooks`; plugin installation does not automatically trust command hooks.
+Start a new Codex task after installation. Review and trust the bundled `SessionStart` and `PreToolUse` hooks with `/hooks`; plugin installation does not automatically trust command hooks. The `PreToolUse` hook denies clearly token-wasteful Bash commands (raw test runners, git patch dumps, `cat` of large files) and replies with the exact capped replacement.
 
 The plugin is self-contained under `plugins/token-efficient-repo-work/`. Run `python3 scripts/sync_plugin.py` after changing canonical helpers or hooks.
 
 ## Token-Saving Model
 
-The plugin bundles a `SessionStart` hook, the `token-efficient-repo-work` skill,
+The plugin bundles `SessionStart` and `PreToolUse` hooks, the `token-efficient-repo-work` skill,
 and Python helpers. It does not install or modify `AGENTS.md`, `CLAUDE.md`, or
 global instruction files.
 

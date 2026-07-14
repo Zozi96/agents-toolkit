@@ -92,7 +92,12 @@ def main() -> None:
     if scan_section:
         sections.append(scan_section)
     sections.append(
-        helper("repo_map.py", path, ["--max-output-chars", str(section_budget)], "Repository Map")
+        helper(
+            "repo_map.py",
+            path,
+            ["--max-output-chars", str(section_budget), "--max-files", "15"],
+            "Repository Map",
+        )
     )
     print(truncate("\n\n".join(section for section in sections if section), args.max_chars))
 

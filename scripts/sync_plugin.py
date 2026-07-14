@@ -29,9 +29,8 @@ def copy(source, destination):
 
 
 def main():
-    skill = PLUGIN / "skills" / "token-efficient-repo-work"
-    copy(ROOT / "hooks/session-start.py", PLUGIN / "hooks/session-start.py")
-    copy(ROOT / "hooks/session-start.ps1", PLUGIN / "hooks/session-start.ps1")
+    for name in ("session-start.py", "session-start.ps1", "pre-tool-use.py", "pre-tool-use.ps1"):
+        copy(ROOT / "hooks" / name, PLUGIN / "hooks" / name)
     for helper in HELPERS:
         copy(ROOT / "scripts" / helper, PLUGIN / "scripts" / helper)
     hooks = {
@@ -51,6 +50,24 @@ def main():
                             "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; & (Join-Path $r 'hooks/session-start.ps1')\"",
                             "timeout": 15,
                             "statusMessage": "Loading token-safe repository context",
+                        }
+                    ]
+                }
+            ],
+            "PreToolUse": [
+                {
+                    # Deny reliably token-wasteful Bash commands (raw test
+                    # runners, git patch dumps, cat of large files) and reply
+                    # with the exact capped replacement so the agent retries
+                    # in one step. High-precision only; everything else passes.
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": '"$(command -v python3 || command -v python)" "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}/hooks/pre-tool-use.py"',
+                            "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; & (Join-Path $r 'hooks/pre-tool-use.ps1')\"",
+                            "timeout": 5,
+                            "statusMessage": "Checking token-safe command routing",
                         }
                     ]
                 }
