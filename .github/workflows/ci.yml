@@ -78,6 +78,7 @@ jobs:
         env:
           CODEX_HOME: ${{ runner.temp }}/codex-home
         run: |
+          mkdir -p "$CODEX_HOME"
           npm install -g @openai/codex@0.144.4
           codex plugin marketplace add .
           codex plugin add token-efficient-repo-work@agents-toolkit
