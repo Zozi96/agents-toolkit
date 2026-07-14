@@ -17,6 +17,17 @@ jobs:
         run: python -m compileall -q scripts hooks plugins tests
       - name: Run tests
         run: python -m unittest discover -s tests -v
+      - name: Interpreter diagnostics
+        shell: pwsh
+        run: |
+          foreach ($c in @(@("py", "-3"), @("python"), @("python3"))) {
+            if (-not (Get-Command $c[0] -ErrorAction SilentlyContinue)) { Write-Host "$($c -join ' '): not found"; continue }
+            $extra = if ($c.Count -gt 1) { $c[1..($c.Count - 1)] } else { @() }
+            $v = & $c[0] @extra --version 2>&1 | Out-String
+            Write-Host "$($c -join ' ') --version: exit=$LASTEXITCODE $($v.Trim())"
+            $o = '{}' | & $c[0] @extra plugins/token-efficient-repo-work/hooks/session-start.py 2>&1 | Out-String
+            Write-Host "$($c -join ' ') hook: exit=$LASTEXITCODE chars=$($o.Length)"
+          }
       - name: SessionStart hook runs via PowerShell wrapper
         shell: pwsh
         env:

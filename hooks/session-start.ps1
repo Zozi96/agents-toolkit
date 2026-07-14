@@ -1,18 +1,21 @@
 $ErrorActionPreference = "Stop"
 
-$python = if (Get-Command py -ErrorAction SilentlyContinue) {
-    "py"
+# Pick the first candidate that actually runs: Get-Command alone is fooled by
+# the Windows Store python stub and by a py launcher with no registered Python.
+$python = $null
+$pythonArgs = @()
+foreach ($candidate in @(@("py", "-3"), @("python"), @("python3"))) {
+    if (-not (Get-Command $candidate[0] -ErrorAction SilentlyContinue)) { continue }
+    $extra = if ($candidate.Count -gt 1) { $candidate[1..($candidate.Count - 1)] } else { @() }
+    & $candidate[0] @extra -c "pass" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $python = $candidate[0]
+        $pythonArgs = $extra
+        break
+    }
 }
-elseif (Get-Command python -ErrorAction SilentlyContinue) {
-    "python"
-}
-elseif (Get-Command python3 -ErrorAction SilentlyContinue) {
-    "python3"
-}
-else {
-    throw "Python 3 is required"
-}
-$pythonArgs = if ($python -eq "py") { @("-3") } else { @() }
+if (-not $python) { throw "Python 3 is required" }
+
 # Pipeline input arrives via $input when invoked in-process (& script.ps1);
 # process stdin via [Console]::In when spawned as a child (real hook usage).
 $payload = @($input) -join "`n"
