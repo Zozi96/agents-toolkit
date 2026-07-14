@@ -22,8 +22,14 @@ jobs:
         env:
           CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}/plugins/token-efficient-repo-work
         run: |
-          $out = '{}' | & ./plugins/token-efficient-repo-work/hooks/session-start.ps1 | Out-String
-          Write-Host "exit=$LASTEXITCODE output_chars=$($out.Length)"
+          # Diagnostics: python direct and in-process wrapper (non-blocking)
+          $direct = '{}' | python plugins/token-efficient-repo-work/hooks/session-start.py | Out-String
+          Write-Host "python-direct: exit=$LASTEXITCODE chars=$($direct.Length)"
+          $inproc = '{}' | & ./plugins/token-efficient-repo-work/hooks/session-start.ps1 | Out-String
+          Write-Host "wrapper-inprocess: exit=$LASTEXITCODE chars=$($inproc.Length)"
+          # Real assertion: child pwsh with piped stdin, exactly how Claude Code invokes the hook
+          $out = '{}' | pwsh -NoProfile -File plugins/token-efficient-repo-work/hooks/session-start.ps1 | Out-String
+          Write-Host "wrapper-child: exit=$LASTEXITCODE chars=$($out.Length)"
           if ($LASTEXITCODE -ne 0) { throw "hook exited $LASTEXITCODE" }
           if (-not $out.Trim()) { throw "hook produced no output" }
           $json = $out | ConvertFrom-Json
@@ -34,12 +40,13 @@ jobs:
         env:
           CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}/plugins/token-efficient-repo-work
         run: |
-          $deny = '{"tool_name":"Bash","tool_input":{"command":"pytest tests/"},"cwd":"."}' | & ./plugins/token-efficient-repo-work/hooks/pre-tool-use.ps1
+          $deny = '{"tool_name":"Bash","tool_input":{"command":"pytest tests/"},"cwd":"."}' | pwsh -NoProfile -File plugins/token-efficient-repo-work/hooks/pre-tool-use.ps1 | Out-String
+          Write-Host "deny probe: exit=$LASTEXITCODE chars=$($deny.Length)"
           if ($LASTEXITCODE -ne 0) { throw "hook exited $LASTEXITCODE" }
           if (($deny | ConvertFrom-Json).hookSpecificOutput.permissionDecision -ne 'deny') { throw "raw pytest was not denied" }
-          $allow = '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":"."}' | & ./plugins/token-efficient-repo-work/hooks/pre-tool-use.ps1
+          $allow = '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":"."}' | pwsh -NoProfile -File plugins/token-efficient-repo-work/hooks/pre-tool-use.ps1 | Out-String
           if ($LASTEXITCODE -ne 0) { throw "hook exited $LASTEXITCODE" }
-          if ($allow) { throw "git status was wrongly intercepted" }
+          if ($allow.Trim()) { throw "git status was wrongly intercepted" }
 
   test:
     runs-on: ubuntu-latest
