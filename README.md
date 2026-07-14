@@ -32,6 +32,7 @@ Install from GitHub:
 ```bash
 codex plugin marketplace add Zozi96/agents-toolkit
 codex plugin add token-efficient-repo-work@agents-toolkit
+codex plugin list
 ```
 
 For local development from this repository:
@@ -39,6 +40,7 @@ For local development from this repository:
 ```bash
 codex plugin marketplace add .
 codex plugin add token-efficient-repo-work@agents-toolkit
+codex plugin list
 ```
 
 Update an existing installation:
@@ -48,7 +50,7 @@ codex plugin marketplace upgrade agents-toolkit
 codex plugin add token-efficient-repo-work@agents-toolkit
 ```
 
-Start a new Codex task after installation. Review and trust the bundled `SessionStart` and `PreToolUse` hooks with `/hooks`; plugin installation does not automatically trust command hooks. The `PreToolUse` hook denies clearly token-wasteful Bash commands (raw test runners, git patch dumps, `cat` of large files) and replies with the exact capped replacement.
+`codex plugin list` only confirms that the plugin is installed and enabled; it does not trust command hooks. Open `/hooks`, review and trust `SessionStart` and `PreToolUse` individually, then start a new Codex task. The `PreToolUse` hook denies clearly token-wasteful Bash commands (raw test runners, git patch dumps, `cat` of large files) and replies with the exact capped replacement.
 
 The plugin is self-contained under `plugins/token-efficient-repo-work/`. Run `python3 scripts/sync_plugin.py` after changing canonical helpers or hooks.
 
@@ -138,9 +140,11 @@ Run the helper tests:
 python3 -m unittest discover -s tests
 ```
 
-Validate local plugin installation with Codex:
+Install the local plugin with Codex (these commands do not validate or trust its hooks):
 
 ```bash
 codex plugin marketplace add .
 codex plugin add token-efficient-repo-work@agents-toolkit
 ```
+
+Then follow the installed/enabled and hook trust checks in [Codex Plugin Install](#codex-plugin-install).
