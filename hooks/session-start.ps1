@@ -7,8 +7,9 @@ $pythonArgs = @()
 foreach ($candidate in @(@("py", "-3"), @("python"), @("python3"))) {
     if (-not (Get-Command $candidate[0] -ErrorAction SilentlyContinue)) { continue }
     $extra = if ($candidate.Count -gt 1) { $candidate[1..($candidate.Count - 1)] } else { @() }
-    & $candidate[0] @extra -c "pass" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    # Require real output: a broken py launcher can exit 0 while printing nothing
+    $probe = (& $candidate[0] @extra -c "print('ok')" 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and $probe -eq "ok") {
         $python = $candidate[0]
         $pythonArgs = $extra
         break
