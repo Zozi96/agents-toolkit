@@ -85,7 +85,7 @@ class ScriptSmokeTests(unittest.TestCase):
             "./plugins/token-efficient-repo-work",
         )
         handler = hooks["hooks"]["SessionStart"][0]["hooks"][0]
-        self.assertIn("${PLUGIN_ROOT}", handler["command"])
+        self.assertIn("${PLUGIN_ROOT:-}", handler["command"])
         self.assertIn("$env:PLUGIN_ROOT", handler["commandWindows"])
         bundled = sorted(path.name for path in (plugin / "scripts").glob("*.py"))
         self.assertGreaterEqual(len(bundled), 12)
@@ -107,7 +107,7 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(marketplace["plugins"][0]["source"], "./plugins/token-efficient-repo-work")
         entry = hooks["hooks"]["SessionStart"][0]
         self.assertEqual(entry["matcher"], "startup|clear|compact")
-        self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}", entry["hooks"][0]["command"])
+        self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}", entry["hooks"][0]["command"])
         pre_tool = hooks["hooks"]["PreToolUse"][0]
         self.assertEqual(pre_tool["matcher"], "Bash")
         self.assertIn("pre-tool-use.py", pre_tool["hooks"][0]["command"])

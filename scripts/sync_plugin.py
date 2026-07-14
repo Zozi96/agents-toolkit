@@ -46,8 +46,10 @@ def main():
                             # Shell fallbacks keep one hooks.json for both agents:
                             # Claude Code exports CLAUDE_PLUGIN_ROOT, Codex exports
                             # PLUGIN_ROOT; python3 may be plain python on Windows.
-                            "command": '"$(command -v python3 || command -v python)" "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}/hooks/session-start.py"',
-                            "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; & (Join-Path $r 'hooks/session-start.ps1')\"",
+                            # ponytail: if neither root var is set (seen on some
+                            # Codex startups) skip instead of failing with exit 2.
+                            "command": 'p="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -f "$p/hooks/session-start.py" ] && exec "$(command -v python3 || command -v python)" "$p/hooks/session-start.py"; exit 0',
+                            "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; $s = if ($r) { Join-Path $r 'hooks/session-start.ps1' }; if ($s -and (Test-Path $s)) { & $s } else { exit 0 }\"",
                             "timeout": 15,
                             "statusMessage": "Loading token-safe repository context",
                         }
@@ -64,8 +66,8 @@ def main():
                     "hooks": [
                         {
                             "type": "command",
-                            "command": '"$(command -v python3 || command -v python)" "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT}}/hooks/pre-tool-use.py"',
-                            "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; & (Join-Path $r 'hooks/pre-tool-use.ps1')\"",
+                            "command": 'p="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -f "$p/hooks/pre-tool-use.py" ] && exec "$(command -v python3 || command -v python)" "$p/hooks/pre-tool-use.py"; exit 0',
+                            "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; $s = if ($r) { Join-Path $r 'hooks/pre-tool-use.ps1' }; if ($s -and (Test-Path $s)) { & $s } else { exit 0 }\"",
                             "timeout": 5,
                             "statusMessage": "Checking token-safe command routing",
                         }
