@@ -56,13 +56,15 @@ def deny(reason):
 def big_plain_read(command, cwd):
     """Return the first large file read via bare cat, or None."""
     try:
-        tokens = shlex.split(command)
+        # Non-POSIX mode on Windows: keep backslashes in paths like D:\repo\f.log
+        tokens = shlex.split(command, posix=os.name != "nt")
     except ValueError:
         return None
     if not tokens or tokens[0] != "cat":
         return None
     for token in tokens[1:]:
-        if token.startswith("-"):
+        token = token.strip("\"'")
+        if not token or token.startswith("-"):
             continue
         path = token if os.path.isabs(token) else os.path.join(cwd, token)
         try:
