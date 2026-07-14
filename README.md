@@ -46,9 +46,16 @@ codex plugin list
 Update an existing installation:
 
 ```bash
+python3 ~/.codex/skills/.system/plugin-creator/scripts/update_plugin_cachebuster.py plugins/token-efficient-repo-work
+python3 scripts/sync_plugin.py
+python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/token-efficient-repo-work
+python3 -m unittest discover -s tests
+# Commit and publish the validated changes, then:
 codex plugin marketplace upgrade agents-toolkit
 codex plugin add token-efficient-repo-work@agents-toolkit
 ```
+
+Start a new thread after reinstalling so Codex picks up the refreshed plugin.
 
 `codex plugin list` only confirms that the plugin is installed and enabled; it does not trust command hooks. Open `/hooks`, review and trust `SessionStart` and `PreToolUse` individually, then start a new Codex task. The `PreToolUse` hook denies clearly token-wasteful Bash commands (raw test runners, git patch dumps, `cat` of large files) and replies with the exact capped replacement.
 
@@ -107,7 +114,7 @@ python3 scripts/safe_read.py app.py --head 80
 python3 scripts/safe_read.py server.log --find traceback --context 3
 python3 scripts/scan_errors.py output.txt --context 2 --limit 30
 python3 scripts/compact_logs.py app.log --keyword error --tail 500
-pytest 2>&1 | python3 scripts/summarize_tests.py -
+python3 scripts/run_capped.py -- pytest
 python3 scripts/diff_summary.py --max-output-chars 12000
 python3 scripts/diff_summary.py --base main --max-output-chars 12000
 python3 scripts/diff_summary.py --staged

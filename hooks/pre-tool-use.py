@@ -27,7 +27,7 @@ OUTPUT_CAPPED = re.compile(
 )
 GIT_FILE_AT_REV = re.compile(r"git\s+show\s+[^|;&]*\S:\S")
 HELPER_ROUTED = re.compile(
-    r"summarize_tests|summarize_json|summarize_data|diff_summary|run_capped|"
+    r"summarize_json|summarize_data|diff_summary|run_capped|"
     r"safe_read|outline|scan_errors|compact_logs"
 )
 
@@ -76,15 +76,16 @@ def big_plain_read(command, cwd):
 
 
 def check(command, cwd):
+    helpers = helpers_dir()
+    if "run_capped.py" in command:
+        return None
+    if TEST_RUNNER.search(command):
+        return (
+            "Token-safe routing: run tests through the capped runner instead:\n"
+            f'python3 "{helpers}/run_capped.py" -- sh -c {shlex.quote(command)}'
+        )
     if HELPER_ROUTED.search(command):
         return None
-    helpers = helpers_dir()
-
-    if TEST_RUNNER.search(command) and not OUTPUT_CAPPED.search(command):
-        return (
-            "Token-safe routing: pipe test output through the summarizer instead:\n"
-            f'{command} 2>&1 | python3 "{helpers}/summarize_tests.py" -'
-        )
 
     if (
         GIT_PATCH.search(command)
@@ -101,10 +102,15 @@ def check(command, cwd):
     if not OUTPUT_CAPPED.search(command):
         path = big_plain_read(command, cwd)
         if path:
-            if path.endswith((".json", ".jsonl", ".ndjson")):
+            if path.endswith(".json"):
                 return (
                     "Token-safe routing: file is large; summarize its shape instead:\n"
                     f'python3 "{helpers}/summarize_json.py" "{path}"'
+                )
+            if path.endswith((".jsonl", ".ndjson")):
+                return (
+                    "Token-safe routing: file is large; summarize its rows instead:\n"
+                    f'python3 "{helpers}/summarize_data.py" "{path}"'
                 )
             return (
                 "Token-safe routing: file is large; outline it, then read only the relevant slice:\n"

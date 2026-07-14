@@ -74,6 +74,14 @@ jobs:
         run: |
           python scripts/sync_plugin.py
           git diff --exit-code
+      - name: Codex plugin ingestion smoke test
+        env:
+          CODEX_HOME: ${{ runner.temp }}/codex-home
+        run: |
+          npm install -g @openai/codex@0.144.4
+          codex plugin marketplace add .
+          codex plugin add token-efficient-repo-work@agents-toolkit
+          codex plugin list --json --marketplace agents-toolkit | python -c 'import json, sys; p = json.load(sys.stdin)["installed"]; assert any(x["name"] == "token-efficient-repo-work" and x["installed"] and x["enabled"] for x in p)'
       - name: Validate Claude Code plugin packaging
         run: |
           npm install -g @anthropic-ai/claude-code

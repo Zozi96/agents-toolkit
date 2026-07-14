@@ -52,10 +52,10 @@ rg -n "symbol_or_error" . --glob "!node_modules" --glob "!.git" |
 & $python @pythonArgs (Join-Path $helpers "safe_read.py") path --start 1 --end 120
 ```
 
-Pipe tests and cap unknown commands in PowerShell as follows:
+Run tests and cap unknown commands in PowerShell as follows:
 
 ```powershell
-pytest 2>&1 | & $python @pythonArgs (Join-Path $helpers "summarize_tests.py") -
+& $python @pythonArgs (Join-Path $helpers "run_capped.py") -- pytest
 & $python @pythonArgs (Join-Path $helpers "run_capped.py") -- COMMAND
 ```
 
@@ -71,15 +71,15 @@ Keep temporary output under `$HOME/.codex/tmp`.
 | Unknown-size command | `run_capped.py` |
 | Error-heavy logs or output | `scan_errors.py` |
 | Keyword, level, regex, or tail log filtering | `compact_logs.py` |
-| Test output | `summarize_tests.py` |
+| Tests and test output | `run_capped.py` |
 | Git changes | `diff_summary.py` |
 | JSON shape | `summarize_json.py` |
 | CSV, TSV, JSONL, or NDJSON | `summarize_data.py` |
 
-Pipe noisy tests into the summarizer:
+Run noisy tests through the capped runner so their exit status is preserved:
 
 ```bash
-pytest 2>&1 | python3 "$helpers/summarize_tests.py" -
+python3 "$helpers/run_capped.py" -- pytest
 ```
 
 Run other noisy commands through the capped runner:

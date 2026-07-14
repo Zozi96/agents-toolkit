@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Refresh the self-contained plugin (Codex + Claude Code) from canonical toolkit files."""
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -33,6 +34,19 @@ def main():
         copy(ROOT / "hooks" / name, PLUGIN / "hooks" / name)
     for helper in HELPERS:
         copy(ROOT / "scripts" / helper, PLUGIN / "scripts" / helper)
+    codex_manifest = json.loads((PLUGIN / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
+    claude_manifest_path = PLUGIN / ".claude-plugin/plugin.json"
+    claude_text = claude_manifest_path.read_text(encoding="utf-8")
+    claude_version = json.loads(claude_text)["version"]
+    claude_text, replacements = re.subn(
+        r'("version"\s*:\s*)' + re.escape(json.dumps(claude_version)),
+        lambda match: match.group(1) + json.dumps(codex_manifest["version"]),
+        claude_text,
+        count=1,
+    )
+    if replacements != 1:
+        raise ValueError("Claude manifest version field not found")
+    claude_manifest_path.write_text(claude_text, encoding="utf-8")
     hooks = {
         "hooks": {
             "SessionStart": [

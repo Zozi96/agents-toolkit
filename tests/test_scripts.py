@@ -173,12 +173,29 @@ class ScriptSmokeTests(unittest.TestCase):
 
     def test_pre_tool_use_denies_raw_test_runners_with_replacement(self):
         reason = self.deny_reason(self.run_pre_tool_use("pytest -x tests/"))
-        self.assertIn("summarize_tests.py", reason)
-        self.assertIn("pytest -x tests/ 2>&1", reason)
+        self.assertIn("run_capped.py", reason)
+        self.assertIn("sh -c 'pytest -x tests/'", reason)
 
-    def test_pre_tool_use_allows_summarized_and_capped_tests(self):
-        self.assertEqual(self.run_pre_tool_use("pytest 2>&1 | python3 scripts/summarize_tests.py -"), "")
-        self.assertEqual(self.run_pre_tool_use("pytest 2>&1 | tail -40"), "")
+    def test_pre_tool_use_test_replacement_preserves_exit_code(self):
+        reason = self.deny_reason(self.run_pre_tool_use("pytest __definitely_missing_test__.py"))
+        replacement = reason.splitlines()[-1].replace(
+            '${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/scripts', str(ROOT / "scripts")
+        )
+        result = subprocess.run(replacement, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_pre_tool_use_allows_its_shell_operator_replacement(self):
+        reason = self.deny_reason(self.run_pre_tool_use("cd tests && pytest __definitely_missing_test__.py"))
+        self.assertEqual(self.run_pre_tool_use(reason.splitlines()[-1]), "")
+
+    def test_pre_tool_use_allows_capped_tests(self):
+        for command in (
+            "pytest 2>&1 | python3 scripts/summarize_tests.py -",
+            "pytest 2>&1 | tail -40",
+            "pytest > out.txt 2>&1",
+        ):
+            self.assertIn("run_capped.py", self.deny_reason(self.run_pre_tool_use(command)), command)
+        self.assertEqual(self.run_pre_tool_use("python3 scripts/run_capped.py -- pytest"), "")
 
     def test_pre_tool_use_denies_git_patch_dumps(self):
         for command in ("git diff", "git show HEAD", "git log -p -3"):
@@ -190,7 +207,6 @@ class ScriptSmokeTests(unittest.TestCase):
 
     def test_pre_tool_use_allows_stdout_redirects_and_file_at_rev(self):
         for command in (
-            "pytest > out.txt 2>&1",
             "git diff > patch.diff",
             "cat a.sql b.sql > merged.sql",
             "git show HEAD:README.md",
@@ -206,12 +222,15 @@ class ScriptSmokeTests(unittest.TestCase):
             big_text.write_text("line\n" * 20000, encoding="utf-8")
             big_json = Path(tmp) / "big.json"
             big_json.write_text('{"k": "' + "v" * 60000 + '"}', encoding="utf-8")
+            big_jsonl = Path(tmp) / "big.jsonl"
+            big_jsonl.write_text('{"k": "' + "v" * 60000 + '"}\n', encoding="utf-8")
             small = Path(tmp) / "small.txt"
             small.write_text("ok\n", encoding="utf-8")
 
             reason = self.deny_reason(self.run_pre_tool_use(f"cat {big_text}", cwd=tmp))
             self.assertIn("safe_read.py", reason)
             self.assertIn("summarize_json.py", self.deny_reason(self.run_pre_tool_use("cat big.json", cwd=tmp)))
+            self.assertIn("summarize_data.py", self.deny_reason(self.run_pre_tool_use("cat big.jsonl", cwd=tmp)))
             self.assertEqual(self.run_pre_tool_use("cat small.txt", cwd=tmp), "")
             self.assertEqual(self.run_pre_tool_use(f"cat {big_text} | head -50", cwd=tmp), "")
 
@@ -430,6 +449,30 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("Probable Framework: pytest", result.stdout)
         self.assertIn("Total Lines Parsed: 4", result.stdout)
         self.assertIn(">> 3: FAILED test_example.py::test_it", result.stdout)
+
+    def test_summarize_tests_ignores_successful_error_named_tests(self):
+        result = run_script(
+            "summarize_tests.py",
+            "-",
+            input_text=(
+                "test_error_path (tests.Example.test_error_path) ... ok\n"
+                "test_failure_mode (tests.Example.test_failure_mode) ... ok\n"
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("No explicit failures found", result.stdout)
+
+    def test_summarize_tests_matches_common_failure_formats(self):
+        result = run_script(
+            "summarize_tests.py",
+            "-",
+            "--context",
+            "0",
+            input_text="1 failed\nerror: broken\nFailure: mismatch\nValueError: bad value\n",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for line in ("1 failed", "error: broken", "Failure: mismatch", "ValueError: bad value"):
+            self.assertIn(line, result.stdout)
 
     def test_summarize_json_redacts_and_limits_input(self):
         result = run_script(

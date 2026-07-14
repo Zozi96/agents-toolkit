@@ -13,7 +13,7 @@ POLICY = """Token-efficient repository workflow. Helpers live in `${CLAUDE_PLUGI
 | file/dir structure | outline.py |
 | targeted file slice | safe_read.py |
 | unknown-size command | run_capped.py -- CMD |
-| test output | CMD 2>&1 \\| summarize_tests.py - |
+| test output | run_capped.py -- CMD |
 | git changes | diff_summary.py |
 | error-heavy logs | scan_errors.py / compact_logs.py |
 | JSON shape | summarize_json.py |

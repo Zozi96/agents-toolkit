@@ -25,7 +25,11 @@ def main():
     args = parser.parse_args()
 
     framework = "Unknown"
-    fail_regex = re.compile(r'(FAIL|FAILED|ERROR|Exception|Error:|Expected|Received)', re.IGNORECASE)
+    fail_regex = re.compile(
+        r"(?i:\b(?:fail(?:ed|ure)?|error|exception|expected|received)\b)|"
+        r"\b[A-Z][A-Za-z]*(?:Error|Exception)\b"
+    )
+    success_regex = re.compile(r"\.\.\.\s+(?:ok|skipped\b.*)$", re.IGNORECASE)
     total_lines = 0
 
     def iter_test_lines(source):
@@ -44,7 +48,7 @@ def main():
         with open_text_source(args.file) as source:
             failures = collect_match_snippets(
                 iter_test_lines(source),
-                lambda line: bool(fail_regex.search(line)),
+                lambda line: not success_regex.search(line) and bool(fail_regex.search(line)),
                 context=args.context,
                 limit=args.limit,
                 line_width=args.line_width,
