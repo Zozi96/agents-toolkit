@@ -216,7 +216,8 @@ class ScriptSmokeTests(unittest.TestCase):
 
     def run_post_tool_use(self, command, response, home, **extra_env):
         env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT")}
-        env.update({"HOME": str(home), "PLUGIN_ROOT": str(ROOT), **extra_env})
+        # Windows resolves Path.home() from USERPROFILE, not HOME.
+        env.update({"HOME": str(home), "USERPROFILE": str(home), "PLUGIN_ROOT": str(ROOT), **extra_env})
         result = subprocess.run(
             [PYTHON, str(ROOT / "hooks/post-tool-use.py")],
             input=json.dumps(
@@ -858,23 +859,14 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(report["results"][0]["median_latency_ms"], 0)
 
     def test_evaluate_context_path_recall_does_not_match_filename_substrings(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            init_repo(repo)
-            (repo / "data.py").write_text("old\n", encoding="utf-8")
-            git(repo, "add", "data.py")
-            git(repo, "commit", "-m", "add data")
-            (repo / "data.py").write_text("old\nnew\n", encoding="utf-8")
-            (repo / "a.py").write_text("untracked\n", encoding="utf-8")
+        # Unit-level check: the previous integration variant relied on a 500-char
+        # budget truncating the output before the untracked file, which broke on
+        # runners with long temp paths (Windows).
+        from evaluate_context import path_present
 
-            result = run_script(
-                "evaluate_context.py", str(repo), "--budgets", "500", "--repetitions", "1"
-            )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        report = json.loads(result.stdout)
-        self.assertEqual(report["changed_paths"], ["data.py", "a.py"])
-        self.assertEqual(report["results"][0]["path_recall"], 0.5)
+        output = "Files:\n  M       +1      -0 tracked   data.py\n"
+        self.assertTrue(path_present("data.py", output))
+        self.assertFalse(path_present("a.py", output))
 
     def test_summarize_agent_usage_parses_codex_and_claude_exports(self):
         with tempfile.TemporaryDirectory() as tmp:
