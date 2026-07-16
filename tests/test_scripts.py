@@ -91,7 +91,14 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(len(bundled), 12)
         for name in bundled:
             self.assertEqual((plugin / "scripts" / name).read_bytes(), (ROOT / "scripts" / name).read_bytes(), name)
-        for name in ("session-start.py", "session-start.ps1", "pre-tool-use.py", "pre-tool-use.ps1"):
+        for name in (
+            "session-start.py",
+            "session-start.ps1",
+            "pre-tool-use.py",
+            "pre-tool-use.ps1",
+            "post-tool-use.py",
+            "post-tool-use.ps1",
+        ):
             self.assertEqual((plugin / "hooks" / name).read_bytes(), (ROOT / "hooks" / name).read_bytes(), name)
 
     def test_claude_plugin_package_is_registered(self):
@@ -112,6 +119,11 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(pre_tool["matcher"], "Bash")
         self.assertIn("pre-tool-use.py", pre_tool["hooks"][0]["command"])
         self.assertIn("pre-tool-use.ps1", pre_tool["hooks"][0]["commandWindows"])
+        post_tool = hooks["hooks"]["PostToolUse"][0]
+        self.assertEqual(post_tool["matcher"], "Bash")
+        self.assertIn("post-tool-use.py", post_tool["hooks"][0]["command"])
+        self.assertIn("post-tool-use.ps1", post_tool["hooks"][0]["commandWindows"])
+        self.assertEqual(post_tool["hooks"][0]["timeout"], 5)
 
     def test_plugin_session_start_hook_accepts_claude_plugin_root(self):
         plugin = ROOT / "plugins/token-efficient-repo-work"
@@ -199,6 +211,77 @@ class ScriptSmokeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
+
+    def run_post_tool_use(self, command, response, home, **extra_env):
+        env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT")}
+        env.update({"HOME": str(home), "PLUGIN_ROOT": str(ROOT), **extra_env})
+        result = subprocess.run(
+            [PYTHON, str(ROOT / "hooks/post-tool-use.py")],
+            input=json.dumps(
+                {
+                    "tool_name": "Bash",
+                    "tool_input": {"command": command},
+                    "tool_response": response,
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_post_tool_use_small_output_is_silent_and_writes_no_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertEqual(self.run_post_tool_use("printf ok", "ok", home), "")
+            self.assertEqual(list(home.rglob("post-tool-*.log")), [])
+
+    def test_post_tool_use_ignores_output_from_existing_helpers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            output = self.run_post_tool_use("python3 scripts/run_capped.py -- pytest", "x" * 12001, home)
+            self.assertEqual(output, "")
+            self.assertEqual(list(home.rglob("post-tool-*.log")), [])
+
+    def test_post_tool_use_compacts_large_output_and_preserves_raw_log(self):
+        lines = [f"HEAD-{index}" for index in range(15)]
+        lines += ["password=very-secret", "fatal: middle exploded"]
+        lines += ["filler-" + ("x" * 250) for _ in range(60)]
+        lines += [f"TAIL-{index}" for index in range(40)]
+        response = "\n".join(lines)
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            output = self.run_post_tool_use("build --all", response, home)
+            result = json.loads(output)
+            self.assertEqual(set(result), {"decision", "reason"})
+            self.assertEqual(result["decision"], "block")
+            reason = result["reason"]
+            self.assertLessEqual(len(reason), 9000)
+            self.assertIn("HEAD-0", reason)
+            self.assertIn("TAIL-39", reason)
+            self.assertIn("fatal: middle exploded", reason)
+            self.assertNotIn("very-secret", reason)
+            logs = list(home.rglob("post-tool-*.log"))
+            self.assertEqual(len(logs), 1)
+            self.assertEqual(logs[0].read_text(encoding="utf-8"), response)
+            if os.name == "posix":
+                self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
+
+    def test_post_tool_use_is_codex_only_when_only_claude_root_is_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            output = self.run_post_tool_use(
+                "build --all",
+                "x" * 12001,
+                home,
+                PLUGIN_ROOT="",
+                CLAUDE_PLUGIN_ROOT=str(ROOT),
+            )
+            self.assertEqual(output, "")
+            self.assertEqual(list(home.rglob("post-tool-*.log")), [])
 
     def deny_reason(self, output):
         decision = json.loads(output)["hookSpecificOutput"]

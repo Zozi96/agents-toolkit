@@ -32,7 +32,14 @@ def copy(source, destination):
 
 
 def main():
-    for name in ("session-start.py", "session-start.ps1", "pre-tool-use.py", "pre-tool-use.ps1"):
+    for name in (
+        "session-start.py",
+        "session-start.ps1",
+        "pre-tool-use.py",
+        "pre-tool-use.ps1",
+        "post-tool-use.py",
+        "post-tool-use.ps1",
+    ):
         copy(ROOT / "hooks" / name, PLUGIN / "hooks" / name)
     for helper in HELPERS:
         copy(ROOT / "scripts" / helper, PLUGIN / "scripts" / helper)
@@ -88,6 +95,20 @@ def main():
                             "statusMessage": "Checking token-safe command routing",
                         }
                     ]
+                }
+            ],
+            "PostToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": 'p="${PLUGIN_ROOT:-}"; [ -f "$p/hooks/post-tool-use.py" ] && exec "$(command -v python3 || command -v python)" "$p/hooks/post-tool-use.py"; exit 0',
+                            "commandWindows": "pwsh -NoProfile -Command \"$r = $env:PLUGIN_ROOT; $s = if ($r) { Join-Path $r 'hooks/post-tool-use.ps1' }; if ($s -and (Test-Path $s)) { & $s } else { exit 0 }\"",
+                            "timeout": 5,
+                            "statusMessage": "Compacting oversized command output",
+                        }
+                    ],
                 }
             ]
         }
