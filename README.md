@@ -67,7 +67,7 @@ The plugin bundles `SessionStart`, `PreToolUse`, and `PostToolUse` hooks, the `t
 and Python helpers. It does not install or modify `AGENTS.md`, `CLAUDE.md`, or
 global instruction files.
 
-`PostToolUse` compacts Bash output above 12,000 characters into a redacted summary of at most 9,000 characters and keeps the complete private log under `~/.codex/tmp/`; smaller output and existing helper output pass unchanged. Codex receives compact feedback after successful or failed Bash commands. Claude receives replacement `stdout` and `stderr` only for successful Bash commands, preserving the channels exactly as Claude reports them (some Claude Code versions merge process stderr into `stdout`).
+Codex uses `PreToolUse` routing and its native result handling; its `PostToolUse` hook is silent. For Claude, `PostToolUse` replaces Bash output above 12,000 characters with redacted `stdout` and `stderr` summaries of at most 9,000 characters total and keeps the complete private log under `~/.codex/tmp/`. Smaller output and existing helper output pass unchanged, preserving the channels exactly as Claude reports them (some Claude Code versions merge process stderr into `stdout`).
 
 Recommended inspection ladder:
 

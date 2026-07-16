@@ -255,16 +255,7 @@ class ScriptSmokeTests(unittest.TestCase):
                 self.assertEqual(self.run_post_tool_use(command, "x" * 12001, home), "", command)
             self.assertEqual(list(home.rglob("post-tool-*.log")), [])
 
-    def test_post_tool_use_does_not_bypass_helper_name_used_only_as_data(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            output = self.run_post_tool_use(
-                "printf '%s' run_capped.py",
-                "x" * 12001,
-                Path(tmp),
-            )
-            self.assertEqual(json.loads(output)["decision"], "block")
-
-    def test_post_tool_use_compacts_large_output_and_preserves_raw_log(self):
+    def test_post_tool_use_codex_large_output_is_silent_and_writes_no_log(self):
         lines = [f"HEAD-{index}" for index in range(15)]
         lines += ["password=very-secret", "fatal: middle exploded"]
         lines += ["filler-" + ("x" * 250) for _ in range(60)]
@@ -273,20 +264,8 @@ class ScriptSmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             output = self.run_post_tool_use("build --all", response, home)
-            result = json.loads(output)
-            self.assertEqual(set(result), {"decision", "reason"})
-            self.assertEqual(result["decision"], "block")
-            reason = result["reason"]
-            self.assertLessEqual(len(reason), 9000)
-            self.assertIn("HEAD-0", reason)
-            self.assertIn("TAIL-39", reason)
-            self.assertIn("fatal: middle exploded", reason)
-            self.assertNotIn("very-secret", reason)
-            logs = list(home.rglob("post-tool-*.log"))
-            self.assertEqual(len(logs), 1)
-            self.assertEqual(logs[0].read_text(encoding="utf-8"), response)
-            if os.name == "posix":
-                self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
+            self.assertEqual(output, "")
+            self.assertEqual(list(home.rglob("post-tool-*.log")), [])
 
     def test_post_tool_use_claude_rejects_non_dict_response_silently(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -384,6 +363,10 @@ class ScriptSmokeTests(unittest.TestCase):
     def test_pre_tool_use_denies_git_patch_dumps(self):
         for command in ("git diff", "git show HEAD", "git log -p -3"):
             self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use(command)), command)
+
+    def test_pre_tool_use_denies_git_diff_with_path(self):
+        reason = self.deny_reason(self.run_pre_tool_use("git diff -- path/to/file"))
+        self.assertIn("diff_summary.py", reason)
 
     def test_pre_tool_use_allows_capped_git_commands(self):
         for command in ("git diff --stat", "git log --oneline -5", "git show --name-only HEAD", "git status"):

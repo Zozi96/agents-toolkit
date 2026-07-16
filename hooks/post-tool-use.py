@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replace oversized Codex and Claude Bash results with compact summaries."""
+"""Replace oversized Claude Bash results with compact summaries."""
 
 import json
 import os
@@ -172,11 +172,6 @@ def main():
         if not valid_claude:
             return 0
     elif plugin_root:
-        text = serialize(response)
-        if len(text) <= OUTPUT_THRESHOLD:
-            return 0
-        reason = summary(command, text, save_raw(text), redact_text)
-        print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
         return 0
     else:
         return 0
