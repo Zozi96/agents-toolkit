@@ -16,7 +16,7 @@ if (-not $python) { throw "Python 3 is required" }
 
 $payload = @($input) -join "`n"
 if (-not $payload) { $payload = [Console]::In.ReadToEnd() }
-$root = $env:PLUGIN_ROOT
+$root = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }
 if (-not $root) { exit 0 }
 $payload | & $python @pythonArgs (Join-Path $root "hooks/post-tool-use.py")
 exit $LASTEXITCODE

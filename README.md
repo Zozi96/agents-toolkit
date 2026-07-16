@@ -57,15 +57,17 @@ codex plugin add token-efficient-repo-work@agents-toolkit
 
 Start a new thread after reinstalling so Codex picks up the refreshed plugin.
 
-`codex plugin list` only confirms that the plugin is installed and enabled; it does not trust command hooks. Open `/hooks`, review and trust `SessionStart` and `PreToolUse` individually, then start a new Codex task. The `PreToolUse` hook denies clearly token-wasteful Bash commands (raw test runners, git patch dumps, `cat` of large files) and replies with the exact capped replacement.
+`codex plugin list` only confirms that the plugin is installed and enabled; it does not trust command hooks. Open `/hooks`, review and trust `SessionStart`, `PreToolUse`, and `PostToolUse` individually, then start a new Codex task. The `PreToolUse` hook denies clearly token-wasteful Bash commands (raw test runners, git patch dumps, `cat` of large files) and replies with the exact capped replacement.
 
 The plugin is self-contained under `plugins/token-efficient-repo-work/`. Run `python3 scripts/sync_plugin.py` after changing canonical helpers or hooks.
 
 ## Token-Saving Model
 
-The plugin bundles `SessionStart` and `PreToolUse` hooks, the `token-efficient-repo-work` skill,
+The plugin bundles `SessionStart`, `PreToolUse`, and `PostToolUse` hooks, the `token-efficient-repo-work` skill,
 and Python helpers. It does not install or modify `AGENTS.md`, `CLAUDE.md`, or
 global instruction files.
+
+`PostToolUse` compacts Bash output above 12,000 characters into a redacted summary of at most 9,000 characters and keeps the complete private log under `~/.codex/tmp/`; smaller output and existing helper output pass unchanged. Codex receives compact feedback after successful or failed Bash commands. Claude receives replacement `stdout` and `stderr` only for successful Bash commands, preserving the channels exactly as Claude reports them (some Claude Code versions merge process stderr into `stdout`).
 
 Recommended inspection ladder:
 

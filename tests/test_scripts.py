@@ -123,6 +123,8 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(post_tool["matcher"], "Bash")
         self.assertIn("post-tool-use.py", post_tool["hooks"][0]["command"])
         self.assertIn("post-tool-use.ps1", post_tool["hooks"][0]["commandWindows"])
+        self.assertIn("${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}", post_tool["hooks"][0]["command"])
+        self.assertIn("$env:CLAUDE_PLUGIN_ROOT", post_tool["hooks"][0]["commandWindows"])
         self.assertEqual(post_tool["hooks"][0]["timeout"], 5)
 
     def test_plugin_session_start_hook_accepts_claude_plugin_root(self):
@@ -242,9 +244,24 @@ class ScriptSmokeTests(unittest.TestCase):
     def test_post_tool_use_ignores_output_from_existing_helpers(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            output = self.run_post_tool_use("python3 scripts/run_capped.py -- pytest", "x" * 12001, home)
-            self.assertEqual(output, "")
+            for command in (
+                "./scripts/run_capped.py -- pytest",
+                "python scripts/run_capped.py -- pytest",
+                "env MODE=test python3 /tmp/run_capped.py -- pytest",
+                "command python3 scripts/run_capped.py -- pytest",
+                "bash -c 'python3 scripts/run_capped.py -- pytest'",
+            ):
+                self.assertEqual(self.run_post_tool_use(command, "x" * 12001, home), "", command)
             self.assertEqual(list(home.rglob("post-tool-*.log")), [])
+
+    def test_post_tool_use_does_not_bypass_helper_name_used_only_as_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self.run_post_tool_use(
+                "printf '%s' run_capped.py",
+                "x" * 12001,
+                Path(tmp),
+            )
+            self.assertEqual(json.loads(output)["decision"], "block")
 
     def test_post_tool_use_compacts_large_output_and_preserves_raw_log(self):
         lines = [f"HEAD-{index}" for index in range(15)]
@@ -270,7 +287,7 @@ class ScriptSmokeTests(unittest.TestCase):
             if os.name == "posix":
                 self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
 
-    def test_post_tool_use_is_codex_only_when_only_claude_root_is_set(self):
+    def test_post_tool_use_claude_rejects_non_dict_response_silently(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             output = self.run_post_tool_use(
@@ -281,6 +298,55 @@ class ScriptSmokeTests(unittest.TestCase):
                 CLAUDE_PLUGIN_ROOT=str(ROOT),
             )
             self.assertEqual(output, "")
+            self.assertEqual(list(home.rglob("post-tool-*.log")), [])
+
+    def test_post_tool_use_claude_compacts_streams_with_exact_output_shape(self):
+        response = {
+            "stdout": "stdout-start\n" + ("out\n" * 1800),
+            "stderr": "password=claude-secret\nfatal: build failed\n" + ("err\n" * 1800),
+            "interrupted": True,
+            "isImage": False,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            output = self.run_post_tool_use(
+                "build --all",
+                response,
+                home,
+                CLAUDE_PLUGIN_ROOT=str(ROOT),
+            )
+            result = json.loads(output)
+            self.assertEqual(set(result), {"hookSpecificOutput"})
+            hook_output = result["hookSpecificOutput"]
+            self.assertEqual(set(hook_output), {"hookEventName", "updatedToolOutput"})
+            self.assertEqual(hook_output["hookEventName"], "PostToolUse")
+            updated = hook_output["updatedToolOutput"]
+            self.assertEqual(set(updated), {"stdout", "stderr", "interrupted", "isImage"})
+            self.assertIs(updated["interrupted"], True)
+            self.assertIs(updated["isImage"], False)
+            self.assertIn("stdout-start", updated["stdout"])
+            self.assertIn("fatal: build failed", updated["stderr"])
+            self.assertNotIn("claude-secret", updated["stderr"])
+            self.assertLessEqual(len(updated["stdout"]) + len(updated["stderr"]), 9000)
+            logs = list(home.rglob("post-tool-*.log"))
+            self.assertEqual(len(logs), 1)
+            self.assertIn("claude-secret", logs[0].read_text(encoding="utf-8"))
+            if os.name == "posix":
+                self.assertEqual(logs[0].stat().st_mode & 0o777, 0o600)
+
+    def test_post_tool_use_claude_small_invalid_and_helper_results_are_silent(self):
+        valid = {"stdout": "ok", "stderr": "", "interrupted": False, "isImage": False}
+        invalid = {"stdout": "x" * 12001, "stderr": "", "interrupted": 0, "isImage": False}
+        helper = {**valid, "stdout": "x" * 12001}
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            env = {"PLUGIN_ROOT": "", "CLAUDE_PLUGIN_ROOT": str(ROOT)}
+            self.assertEqual(self.run_post_tool_use("printf ok", valid, home, **env), "")
+            self.assertEqual(self.run_post_tool_use("build --all", invalid, home, **env), "")
+            self.assertEqual(
+                self.run_post_tool_use("python3 scripts/run_capped.py -- pytest", helper, home, **env),
+                "",
+            )
             self.assertEqual(list(home.rglob("post-tool-*.log")), [])
 
     def deny_reason(self, output):

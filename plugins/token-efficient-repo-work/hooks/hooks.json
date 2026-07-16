@@ -34,8 +34,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "p=\"${PLUGIN_ROOT:-}\"; [ -f \"$p/hooks/post-tool-use.py\" ] && exec \"$(command -v python3 || command -v python)\" \"$p/hooks/post-tool-use.py\"; exit 0",
-            "commandWindows": "pwsh -NoProfile -Command \"$r = $env:PLUGIN_ROOT; $s = if ($r) { Join-Path $r 'hooks/post-tool-use.ps1' }; if ($s -and (Test-Path $s)) { & $s } else { exit 0 }\"",
+            "command": "p=\"${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}\"; [ -f \"$p/hooks/post-tool-use.py\" ] && exec \"$(command -v python3 || command -v python)\" \"$p/hooks/post-tool-use.py\"; exit 0",
+            "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; $s = if ($r) { Join-Path $r 'hooks/post-tool-use.ps1' }; if ($s -and (Test-Path $s)) { & $s } else { exit 0 }\"",
             "timeout": 5,
             "statusMessage": "Compacting oversized command output"
           }

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Replace oversized Codex Bash results with a compact, redacted summary."""
+"""Replace oversized Codex and Claude Bash results with compact summaries."""
 
 import json
 import os
 import re
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ HELPERS = (
     "summarize_data.py",
 )
 ERROR_RE = re.compile(r"error|exception|traceback|failed|failure|fatal|panic", re.IGNORECASE)
+ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def serialize(value):
@@ -31,6 +33,57 @@ def serialize(value):
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, indent=2)
     return str(value)
+
+
+def invokes_helper(command):
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars="|;&")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        return False
+
+    segments = []
+    current = []
+    for token in tokens:
+        if token and set(token) <= {"|", ";", "&"}:
+            if current:
+                segments.append(current)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        segments.append(current)
+
+    for segment in segments:
+        index = 0
+        while index < len(segment) and ASSIGNMENT_RE.match(segment[index]):
+            index += 1
+        while index < len(segment) and Path(segment[index]).name in {
+            "command", "exec", "env", "nohup", "sudo", "time"
+        }:
+            index += 1
+            while index < len(segment) and (segment[index].startswith("-") or ASSIGNMENT_RE.match(segment[index])):
+                index += 1
+        if index >= len(segment):
+            continue
+
+        program = Path(segment[index]).name
+        if program in HELPERS:
+            return True
+        if program in {"sh", "bash", "zsh"} and "-c" in segment[index + 1 :]:
+            shell_index = segment.index("-c", index + 1)
+            if shell_index + 1 < len(segment) and invokes_helper(segment[shell_index + 1]):
+                return True
+        if re.fullmatch(r"python(?:\d+(?:\.\d+)?)?|py", program):
+            for argument in segment[index + 1 :]:
+                if argument.startswith("-"):
+                    continue
+                if Path(argument).name in HELPERS:
+                    return True
+                break
+    return False
 
 
 def save_raw(text):
@@ -51,7 +104,7 @@ def clipped_line(line):
     return line if len(line) <= 80 else line[:77] + "..."
 
 
-def summary(command, text, log_path, redact_text):
+def summary(command, text, log_path, redact_text, limit=SUMMARY_LIMIT):
     lines = text.splitlines()
     head_indices = set(range(min(15, len(lines))))
     tail_start = max(len(lines) - 40, 0)
@@ -78,11 +131,13 @@ def summary(command, text, log_path, redact_text):
     sections.extend(("", "Tail (40 lines max):"))
     sections.extend(clipped_line(lines[index]) for index in sorted(tail_indices - head_indices))
     result = redact_text("\n".join(sections))
-    return result[:SUMMARY_LIMIT]
+    return result[:limit]
 
 
 def main():
-    root = os.environ.get("PLUGIN_ROOT")
+    plugin_root = os.environ.get("PLUGIN_ROOT")
+    claude_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    root = plugin_root or claude_root
     if not root:
         return 0
     sys.path.insert(0, str(Path(root) / "scripts"))
@@ -93,19 +148,63 @@ def main():
     except (ImportError, json.JSONDecodeError, OSError, TypeError, ValueError):
         return 0
 
-    if payload.get("tool_name") != "Bash":
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
         return 0
     tool_input = payload.get("tool_input")
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
     command_text = serialize(command)
-    if any(helper in command_text for helper in HELPERS):
+    if invokes_helper(command_text):
         return 0
-    text = serialize(payload.get("tool_response", ""))
-    if len(text) <= OUTPUT_THRESHOLD:
+    response = payload.get("tool_response", "")
+    claude_keys = {"stdout", "stderr", "interrupted", "isImage"}
+    looks_like_claude = isinstance(response, dict) and bool(claude_keys & response.keys())
+    valid_claude = (
+        looks_like_claude
+        and isinstance(response.get("stdout"), str)
+        and isinstance(response.get("stderr"), str)
+        and type(response.get("interrupted")) is bool
+        and type(response.get("isImage")) is bool
+    )
+
+    # Claude may run inside a Codex-started process and inherit PLUGIN_ROOT.
+    # Prefer its documented Bash response shape over ambiguous environment aliases.
+    if claude_root and looks_like_claude:
+        if not valid_claude:
+            return 0
+    elif plugin_root:
+        text = serialize(response)
+        if len(text) <= OUTPUT_THRESHOLD:
+            return 0
+        reason = summary(command, text, save_raw(text), redact_text)
+        print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+        return 0
+    else:
+        return 0
+    stdout = response["stdout"]
+    stderr = response["stderr"]
+    if len(stdout) + len(stderr) <= OUTPUT_THRESHOLD:
         return 0
 
-    reason = summary(command, text, save_raw(text), redact_text)
-    print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
+    log_path = save_raw(serialize(response))
+    stream_count = bool(stdout) + bool(stderr)
+    budget = SUMMARY_LIMIT if stream_count == 1 else SUMMARY_LIMIT // 2
+    updated = {
+        "stdout": summary(command, stdout, log_path, redact_text, budget) if stdout else "",
+        "stderr": summary(command, stderr, log_path, redact_text, budget) if stderr else "",
+        "interrupted": response["interrupted"],
+        "isImage": response["isImage"],
+    }
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "updatedToolOutput": updated,
+                }
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
