@@ -746,7 +746,13 @@ class ScriptSmokeTests(unittest.TestCase):
             claude.write_text(
                 json.dumps(
                     {
-                        "usage": {"input_tokens": 12, "output_tokens": 7},
+                        "usage": {
+                            "input_tokens": 12,
+                            "output_tokens": 7,
+                            "service_tier": "standard",
+                            "server_tool_use": {"web_search_requests": 0},
+                            "iterations": [{"type": "message", "input_tokens": 2}],
+                        },
                         "total_cost_usd": 0.0042,
                         "modelUsage": {"claude-test": {"inputTokens": 12, "outputTokens": 7}},
                     }
@@ -768,7 +774,9 @@ class ScriptSmokeTests(unittest.TestCase):
         )
         self.assertEqual(claude_result.returncode, 0, claude_result.stderr)
         claude_report = json.loads(claude_result.stdout)
-        self.assertEqual(claude_report["usage"], {"input_tokens": 12, "output_tokens": 7})
+        self.assertEqual(claude_report["usage"]["input_tokens"], 12)
+        self.assertEqual(claude_report["usage"]["service_tier"], "standard")
+        self.assertEqual(claude_report["usage"]["iterations"][0]["type"], "message")
         self.assertEqual(claude_report["total_cost_usd"], 0.0042)
         self.assertIn("claude-test", claude_report["modelUsage"])
 
@@ -784,8 +792,8 @@ class ScriptSmokeTests(unittest.TestCase):
 
     def test_summarize_agent_usage_rejects_invalid_claude_usage_fields(self):
         cases = (
-            ({"usage": {"input_tokens": True}}, "usage values"),
-            ({"usage": {"input_tokens": "12"}}, "usage values"),
+            ({"usage": {"input_tokens": True}}, "input_tokens must be numeric"),
+            ({"usage": {"input_tokens": "12"}}, "input_tokens must be numeric"),
             ({"usage": {"input_tokens": 12}, "total_cost_usd": False}, "total_cost_usd"),
             ({"usage": {"input_tokens": 12}, "modelUsage": []}, "modelUsage"),
             ({"usage": {"input_tokens": 12}, "model_usage": []}, "modelUsage"),

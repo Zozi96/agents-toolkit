@@ -44,8 +44,12 @@ def load_claude(path):
         raise ValueError(f"invalid JSON: {exc.msg}") from exc
     if not isinstance(data, dict) or not isinstance(data.get("usage"), dict):
         raise ValueError("invalid Claude export: expected an object with usage")
-    if any(not is_number(value) for value in data["usage"].values()):
-        raise ValueError("invalid Claude export: usage values must be numeric")
+    token_fields = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+    for field in token_fields:
+        if field in data["usage"] and not is_number(data["usage"][field]):
+            raise ValueError(f"invalid Claude export: {field} must be numeric")
+    if not any(field in data["usage"] for field in token_fields):
+        raise ValueError("invalid Claude export: no token counts found")
     report = {"runtime": "claude", "usage": data["usage"]}
     if "total_cost_usd" in data:
         if not is_number(data["total_cost_usd"]):

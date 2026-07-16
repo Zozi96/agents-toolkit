@@ -137,11 +137,12 @@ Capture real usage, then parse it locally:
 ```bash
 codex exec --ephemeral --json "task" > ~/.codex/tmp/codex-usage.jsonl
 python3 scripts/summarize_agent_usage.py codex ~/.codex/tmp/codex-usage.jsonl
-claude --bare -p "task" --output-format json > ~/.codex/tmp/claude-usage.json
+claude -p "task" --output-format json --setting-sources "" > ~/.codex/tmp/claude-usage.json
 python3 scripts/summarize_agent_usage.py claude ~/.codex/tmp/claude-usage.json
 ```
 
-The two agent commands consume quota. `evaluate_context.py` and `summarize_agent_usage.py` do not invoke models.
+The two agent commands consume quota. Use `--bare` instead when authenticating Claude with
+`ANTHROPIC_API_KEY`; `evaluate_context.py` and `summarize_agent_usage.py` do not invoke models.
 
 `scan_errors.py`, `compact_logs.py`, and `summarize_tests.py` use consistent
 snippet markers: context lines start with spaces and match lines start with
