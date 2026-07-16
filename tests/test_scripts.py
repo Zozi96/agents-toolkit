@@ -154,6 +154,40 @@ class ScriptSmokeTests(unittest.TestCase):
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("Repository Context", context)
 
+    def test_session_start_compact_skips_repository_context(self):
+        result = subprocess.run(
+            [PYTHON, str(ROOT / "hooks/session-start.py")],
+            input=json.dumps({"source": "compact", "cwd": str(ROOT)}),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "PLUGIN_ROOT": str(ROOT)},
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertLess(len(context), 500)
+        self.assertNotIn("Repository Context", context)
+        self.assertIn("agent_context.py", context)
+
+    def test_session_start_startup_and_clear_use_bounded_repository_context(self):
+        for source in ("startup", "clear"):
+            with self.subTest(source=source):
+                result = subprocess.run(
+                    [PYTHON, str(ROOT / "hooks/session-start.py")],
+                    input=json.dumps({"source": source, "cwd": str(ROOT)}),
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env={**os.environ, "PLUGIN_ROOT": str(ROOT)},
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+                self.assertIn("Repository Context", context)
+                self.assertLessEqual(len(context), 3800)
+
     def run_pre_tool_use(self, command, cwd="."):
         result = subprocess.run(
             [PYTHON, str(ROOT / "hooks/pre-tool-use.py")],
@@ -607,6 +641,9 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("Next Token-Safe Steps", result.stdout)
         self.assertIn("safe_read.py", result.stdout)
         self.assertIn("file.txt", result.stdout)
+        self.assertNotIn(str(repo / "file.txt"), result.stdout)
+        self.assertIn("Changed paths:\n  - file.txt", result.stdout)
+        self.assertIn("outline.py <path>, then safe_read.py <path>", result.stdout)
 
     def test_agent_context_preserves_actions_with_small_output_budget(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -639,6 +676,128 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("Next Token-Safe Steps", result.stdout)
         self.assertIn("No local file deltas detected.", result.stdout)
         self.assertIn("rg -n \"symbol_or_error\"", result.stdout)
+
+    def test_evaluate_context_reports_budgets_sections_and_path_recall_without_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "file.txt").write_text("old\nnew\n", encoding="utf-8")
+            before = git(repo, "status", "--porcelain=v1").stdout
+
+            result = run_script(
+                "evaluate_context.py",
+                str(repo),
+                "--budgets",
+                "1500,3000",
+                "--repetitions",
+                "2",
+            )
+            after = git(repo, "status", "--porcelain=v1").stdout
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(before, after)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["budgets"], [1500, 3000])
+        self.assertEqual(report["repetitions"], 2)
+        self.assertEqual(report["changed_paths"], ["file.txt"])
+        self.assertEqual(len(report["results"]), 2)
+        self.assertEqual(report["results"][1]["path_recall"], 1.0)
+        self.assertEqual(
+            report["results"][1]["sections"],
+            {"Git Diff Summary": True, "Next Token-Safe Steps": True, "Repository Map": True},
+        )
+        self.assertGreaterEqual(report["results"][0]["median_latency_ms"], 0)
+
+    def test_evaluate_context_path_recall_does_not_match_filename_substrings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "data.py").write_text("old\n", encoding="utf-8")
+            git(repo, "add", "data.py")
+            git(repo, "commit", "-m", "add data")
+            (repo / "data.py").write_text("old\nnew\n", encoding="utf-8")
+            (repo / "a.py").write_text("untracked\n", encoding="utf-8")
+
+            result = run_script(
+                "evaluate_context.py", str(repo), "--budgets", "500", "--repetitions", "1"
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["changed_paths"], ["data.py", "a.py"])
+        self.assertEqual(report["results"][0]["path_recall"], 0.5)
+
+    def test_summarize_agent_usage_parses_codex_and_claude_exports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            codex = base / "codex.jsonl"
+            codex.write_text(
+                '\n'.join(
+                    json.dumps(event)
+                    for event in (
+                        {"type": "turn.completed", "usage": {"input_tokens": 10, "cached_input_tokens": 3, "output_tokens": 4}},
+                        {"type": "item.completed", "usage": {"input_tokens": 999}},
+                        {"type": "turn.completed", "usage": {"input_tokens": 20, "reasoning_output_tokens": 5}},
+                    )
+                ),
+                encoding="utf-8",
+            )
+            claude = base / "claude.json"
+            claude.write_text(
+                json.dumps(
+                    {
+                        "usage": {"input_tokens": 12, "output_tokens": 7},
+                        "total_cost_usd": 0.0042,
+                        "modelUsage": {"claude-test": {"inputTokens": 12, "outputTokens": 7}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            codex_result = run_script("summarize_agent_usage.py", "codex", str(codex))
+            claude_result = run_script("summarize_agent_usage.py", "claude", str(claude))
+
+        self.assertEqual(codex_result.returncode, 0, codex_result.stderr)
+        self.assertEqual(
+            json.loads(codex_result.stdout),
+            {
+                "runtime": "codex",
+                "turns": 2,
+                "usage": {"cached_input_tokens": 3, "input_tokens": 30, "output_tokens": 4, "reasoning_output_tokens": 5},
+            },
+        )
+        self.assertEqual(claude_result.returncode, 0, claude_result.stderr)
+        claude_report = json.loads(claude_result.stdout)
+        self.assertEqual(claude_report["usage"], {"input_tokens": 12, "output_tokens": 7})
+        self.assertEqual(claude_report["total_cost_usd"], 0.0042)
+        self.assertIn("claude-test", claude_report["modelUsage"])
+
+    def test_summarize_agent_usage_rejects_codex_export_without_completed_turns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "codex.jsonl"
+            for content in ("{}\n", json.dumps({"type": "item.completed"}) + "\n"):
+                with self.subTest(content=content):
+                    path.write_text(content, encoding="utf-8")
+                    result = run_script("summarize_agent_usage.py", "codex", str(path))
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("no turn.completed", result.stderr)
+
+    def test_summarize_agent_usage_rejects_invalid_claude_usage_fields(self):
+        cases = (
+            ({"usage": {"input_tokens": True}}, "usage values"),
+            ({"usage": {"input_tokens": "12"}}, "usage values"),
+            ({"usage": {"input_tokens": 12}, "total_cost_usd": False}, "total_cost_usd"),
+            ({"usage": {"input_tokens": 12}, "modelUsage": []}, "modelUsage"),
+            ({"usage": {"input_tokens": 12}, "model_usage": []}, "modelUsage"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "claude.json"
+            for payload, message in cases:
+                with self.subTest(payload=payload):
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    result = run_script("summarize_agent_usage.py", "claude", str(path))
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(message, result.stderr)
 
     def test_diff_summary_reports_working_tree_and_redacts(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -92,6 +92,7 @@ default.
 | Helper | Use it for |
 | --- | --- |
 | `agent_context.py` | One-command medium repo context: map + diff summary, optional error scan, and token-safe follow-up suggestions. |
+| `evaluate_context.py` | Offline context-size, latency, section-presence, and changed-path recall evaluation. |
 | `repo_map.py` | Compact repository orientation before broad exploration. |
 | `outline.py` | Code structure (defs, classes, exports) with line numbers and without bodies, for a file or directory. Locate the right slice before reading content. |
 | `run_capped.py` | Run a command, keep the full raw output in `~/.codex/tmp/`, and print only exit code, head, tail, and error lines. |
@@ -102,6 +103,7 @@ default.
 | `diff_summary.py` | Summarizing staged, unstaged, untracked, or base-ref Git changes without full diffs. |
 | `summarize_json.py` | Summarizing large JSON shape without dumping values; large files require `--force`. |
 | `summarize_data.py` | Summarizing CSV, TSV, JSONL, and NDJSON files without pandas. |
+| `summarize_agent_usage.py` | Parse saved Codex JSONL or Claude JSON usage without calling a model. |
 
 Common commands:
 
@@ -123,6 +125,23 @@ python3 scripts/summarize_data.py data.csv --sample-rows 5
 ```
 
 `agent_context.py` imprime `Next Token-Safe Steps` para dirigir la siguiente acción hacia lecturas pequeñas (por ejemplo `safe_read.py`) antes de ampliar el scope.
+
+Evaluate context budgets offline (no model calls or quota use):
+
+```bash
+python3 scripts/evaluate_context.py . --budgets 1500,3000,4500 --repetitions 3
+```
+
+Capture real usage, then parse it locally:
+
+```bash
+codex exec --ephemeral --json "task" > ~/.codex/tmp/codex-usage.jsonl
+python3 scripts/summarize_agent_usage.py codex ~/.codex/tmp/codex-usage.jsonl
+claude --bare -p "task" --output-format json > ~/.codex/tmp/claude-usage.json
+python3 scripts/summarize_agent_usage.py claude ~/.codex/tmp/claude-usage.json
+```
+
+The two agent commands consume quota. `evaluate_context.py` and `summarize_agent_usage.py` do not invoke models.
 
 `scan_errors.py`, `compact_logs.py`, and `summarize_tests.py` use consistent
 snippet markers: context lines start with spaces and match lines start with

@@ -38,11 +38,10 @@ def build_next_steps(path: str, diff_summary: str, scan_summary: str | None) -> 
     steps: list[str] = ["Next Token-Safe Steps:"]
 
     if changed_files:
-        steps.append("- Inspect candidate files first (outline, then targeted safe_read):")
+        steps.append("- Changed paths:")
         for filename in changed_files:
-            full_path = os.path.normpath(os.path.join(path, filename))
-            steps.append(f"  - python3 ~/.agents/scripts/outline.py {full_path}")
-            steps.append(f"  - python3 ~/.agents/scripts/safe_read.py {full_path} --head 160")
+            steps.append(f"  - {filename}")
+        steps.append("- Run outline.py <path>, then safe_read.py <path> --start N --end M.")
     else:
         steps.append("- No local file deltas detected.")
         steps.append(
