@@ -1,5 +1,6 @@
 import os
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,34 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn('Get-Command py -ErrorAction SilentlyContinue', instructions)
         self.assertIn('& $python @pythonArgs', instructions)
         self.assertIn("$token-efficient-repo-work", metadata)
+
+    def test_pi_package_registers_extension_and_existing_skill(self):
+        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        extension = (ROOT / "extensions/pi-agent/index.mjs").read_text(encoding="utf-8")
+
+        self.assertIn("pi-package", package["keywords"])
+        self.assertEqual(package["pi"]["extensions"], ["./extensions/pi-agent/index.mjs"])
+        self.assertEqual(
+            package["pi"]["skills"],
+            ["./plugins/token-efficient-repo-work/skills"],
+        )
+        self.assertIn('@earendil-works/pi-coding-agent', package["peerDependencies"])
+        self.assertIn('pi.on("session_start"', extension)
+        self.assertIn('pi.on("before_agent_start"', extension)
+        self.assertIn('pi.on("tool_call"', extension)
+        self.assertIn("PI_PACKAGE_ROOT", extension)
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        result = subprocess.run(
+            [node, "--test", str(ROOT / "tests/test_pi_extension.mjs")],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_codex_plugin_package_is_self_contained_and_synced(self):
         plugin = ROOT / "plugins/token-efficient-repo-work"
@@ -203,13 +232,14 @@ class ScriptSmokeTests(unittest.TestCase):
                 self.assertIn("Repository Context", context)
                 self.assertLessEqual(len(context), 3800)
 
-    def run_pre_tool_use(self, command, cwd="."):
+    def run_pre_tool_use(self, command, cwd=".", **extra_env):
         result = subprocess.run(
             [PYTHON, str(ROOT / "hooks/pre-tool-use.py")],
             input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(cwd)}),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env={**os.environ, **extra_env},
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -338,14 +368,33 @@ class ScriptSmokeTests(unittest.TestCase):
     def test_pre_tool_use_denies_raw_test_runners_with_replacement(self):
         reason = self.deny_reason(self.run_pre_tool_use("pytest -x tests/"))
         self.assertIn("run_capped.py", reason)
-        self.assertIn("sh -c 'pytest -x tests/'", reason)
+        expected = "pwsh -NoProfile -Command 'pytest -x tests/'" if os.name == "nt" else "sh -c 'pytest -x tests/'"
+        self.assertIn(expected, reason)
+
+    def test_pre_tool_use_emits_powershell_replacement(self):
+        reason = self.deny_reason(
+            self.run_pre_tool_use(
+                "pytest -x tests/",
+                PI_POWERSHELL="1",
+                PLUGIN_ROOT=str(ROOT),
+            )
+        )
+        self.assertIn("pwsh -NoProfile -Command 'pytest -x tests/'", reason)
+        self.assertIn(str(ROOT / "scripts" / "run_capped.py"), reason)
 
     def test_pre_tool_use_test_replacement_preserves_exit_code(self):
         reason = self.deny_reason(self.run_pre_tool_use("pytest __definitely_missing_test__.py"))
         replacement = reason.splitlines()[-1].replace(
             '${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/scripts', str(ROOT / "scripts")
         )
-        result = subprocess.run(replacement, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        invocation = ["pwsh", "-NoProfile", "-Command", replacement] if os.name == "nt" else replacement
+        result = subprocess.run(
+            invocation,
+            shell=os.name != "nt",
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_pre_tool_use_allows_its_shell_operator_replacement(self):
@@ -364,6 +413,16 @@ class ScriptSmokeTests(unittest.TestCase):
     def test_pre_tool_use_denies_git_patch_dumps(self):
         for command in ("git diff", "git show HEAD", "git log -p -3"):
             self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use(command)), command)
+
+    def test_pre_tool_use_allows_generated_powershell_git_cap(self):
+        reason = self.deny_reason(
+            self.run_pre_tool_use("git diff", PI_POWERSHELL="1", PLUGIN_ROOT=str(ROOT))
+        )
+        replacement = reason.splitlines()[-1].replace("<path>", "README.md")
+        self.assertEqual(
+            self.run_pre_tool_use(replacement, PI_POWERSHELL="1", PLUGIN_ROOT=str(ROOT)),
+            "",
+        )
 
     def test_pre_tool_use_denies_git_diff_with_path(self):
         reason = self.deny_reason(self.run_pre_tool_use("git diff -- path/to/file"))

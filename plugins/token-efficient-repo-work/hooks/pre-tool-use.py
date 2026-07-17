@@ -23,7 +23,9 @@ GIT_CAPPED = re.compile(r"--stat|--shortstat|--name-only|--name-status|--oneline
 OUTPUT_CAPPED = re.compile(
     # Piped through a capping filter, or stdout redirected to a file
     # (zero terminal output = zero token cost). `2>&1` alone is not a cap.
-    r"\|\s*(?:head|tail|sed|awk|wc|grep|rg)\b|(?:^|\s|;|&&|\|\|)(?:&>>?|1?>>?)\s*\S"
+    r"\|\s*(?:head|tail|sed|awk|wc|grep|rg)\b|\|\s*select-object\s+-first\b|"
+    r"(?:^|\s|;|&&|\|\|)(?:&>>?|1?>>?)\s*\S",
+    re.IGNORECASE,
 )
 GIT_FILE_AT_REV = re.compile(r"git\s+show\s+[^|;&]*\S:\S")
 HELPER_ROUTED = re.compile(
@@ -37,6 +39,27 @@ def helpers_dir():
     if root:
         return os.path.join(root, "scripts")
     return "${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/scripts"
+
+
+def is_powershell():
+    return os.name == "nt" or os.environ.get("PI_POWERSHELL") == "1"
+
+
+def powershell_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def helper_command(name):
+    helpers = helpers_dir()
+    if is_powershell():
+        return f"& {powershell_quote(sys.executable)} {powershell_quote(os.path.join(helpers, name))}"
+    return f'python3 "{helpers}/{name}"'
+
+
+def shell_command(command):
+    if is_powershell():
+        return f"pwsh -NoProfile -Command {powershell_quote(command)}"
+    return f"sh -c {shlex.quote(command)}"
 
 
 def deny(reason):
@@ -76,13 +99,12 @@ def big_plain_read(command, cwd):
 
 
 def check(command, cwd):
-    helpers = helpers_dir()
     if "run_capped.py" in command:
         return None
     if TEST_RUNNER.search(command):
         return (
             "Token-safe routing: run tests through the capped runner instead:\n"
-            f'python3 "{helpers}/run_capped.py" -- sh -c {shlex.quote(command)}'
+            f"{helper_command('run_capped.py')} -- {shell_command(command)}"
         )
     if HELPER_ROUTED.search(command):
         return None
@@ -95,8 +117,9 @@ def check(command, cwd):
     ):
         return (
             "Token-safe routing: summarize git changes instead:\n"
-            f'python3 "{helpers}/diff_summary.py" .\n'
-            f"For one file's hunks: {command} -- <path> | head -c 12000"
+            f"{helper_command('diff_summary.py')} .\n"
+            f"For one file's hunks: {command} -- <path> | "
+            + ("Select-Object -First 200" if is_powershell() else "head -c 12000")
         )
 
     if not OUTPUT_CAPPED.search(command):
@@ -105,17 +128,17 @@ def check(command, cwd):
             if path.endswith(".json"):
                 return (
                     "Token-safe routing: file is large; summarize its shape instead:\n"
-                    f'python3 "{helpers}/summarize_json.py" "{path}"'
+                    f"{helper_command('summarize_json.py')} {powershell_quote(path) if is_powershell() else shlex.quote(path)}"
                 )
             if path.endswith((".jsonl", ".ndjson")):
                 return (
                     "Token-safe routing: file is large; summarize its rows instead:\n"
-                    f'python3 "{helpers}/summarize_data.py" "{path}"'
+                    f"{helper_command('summarize_data.py')} {powershell_quote(path) if is_powershell() else shlex.quote(path)}"
                 )
             return (
                 "Token-safe routing: file is large; outline it, then read only the relevant slice:\n"
-                f'python3 "{helpers}/outline.py" "{path}"\n'
-                f'python3 "{helpers}/safe_read.py" "{path}" --start N --end M'
+                f"{helper_command('outline.py')} {powershell_quote(path) if is_powershell() else shlex.quote(path)}\n"
+                f"{helper_command('safe_read.py')} {powershell_quote(path) if is_powershell() else shlex.quote(path)} --start N --end M"
             )
     return None
 

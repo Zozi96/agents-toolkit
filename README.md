@@ -1,6 +1,24 @@
 # Agents Toolkit
 
-Plugin for Claude Code and Codex: compact repository inspection, redacted context, and token-capped command output.
+Extension for Pi, Claude Code, and Codex: compact repository inspection, redacted context, and token-capped command output.
+
+## Pi Agent Extension Install
+
+Install from GitHub:
+
+```bash
+pi install git:github.com/Zozi96/agents-toolkit
+pi list
+```
+
+For local development from this repository:
+
+```bash
+pi install .
+pi list
+```
+
+Start a new Pi session after installing. The package loads the existing skill, injects compact repository context, and blocks raw Bash commands that should use a capped helper. Python 3 is required. Pi already truncates oversized tool output natively, so the Claude-only `PostToolUse` compactor is not duplicated.
 
 ## Claude Code Plugin Install
 

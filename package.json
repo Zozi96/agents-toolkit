@@ -1,0 +1,29 @@
+{
+  "name": "agents-toolkit",
+  "version": "0.4.1",
+  "description": "Token-efficient repository workflow for Pi, Codex, and Claude Code.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["pi-package", "coding-agent", "tokens", "repository"],
+  "files": [
+    "extensions/pi-agent",
+    "hooks/*.py",
+    "hooks/*.ps1",
+    "scripts/*.py",
+    "plugins/token-efficient-repo-work/skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": ["./extensions/pi-agent/index.mjs"],
+    "skills": ["./plugins/token-efficient-repo-work/skills"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  }
+}

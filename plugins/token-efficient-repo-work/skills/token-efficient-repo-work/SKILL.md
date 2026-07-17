@@ -5,7 +5,7 @@ description: Inspect and diagnose software repositories with minimal context acr
 
 # Token-Efficient Repo Work
 
-Minimize context without sacrificing evidence. Use the bundled helpers from the plugin `scripts/` directory; do not rewrite or install them globally. The plugin root is `$CLAUDE_PLUGIN_ROOT` (Claude Code) or `$PLUGIN_ROOT` (Codex).
+Minimize context without sacrificing evidence. Use the bundled helpers from the plugin `scripts/` directory; do not rewrite or install them globally. The plugin root is `$PI_PACKAGE_ROOT` (Pi), `$CLAUDE_PLUGIN_ROOT` (Claude Code), or `$PLUGIN_ROOT` (Codex).
 
 ## Workflow
 
@@ -13,7 +13,7 @@ Minimize context without sacrificing evidence. Use the bundled helpers from the 
 2. Resolve the helper directory, then reuse `Repository Context` injected by the `SessionStart` hook when present. Do not rerun orientation unless that context is missing, stale, or insufficient. Otherwise run:
 
    ```bash
-   helpers="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}/scripts"
+   helpers="${PI_PACKAGE_ROOT:-${CLAUDE_PLUGIN_ROOT:-$PLUGIN_ROOT}}/scripts"
    python3 "$helpers/agent_context.py" . --max-output-chars 12000
    ```
 
@@ -37,7 +37,9 @@ Minimize context without sacrificing evidence. Use the bundled helpers from the 
 Detect Windows PowerShell through `$PSVersionTable`. Use these equivalents instead of Bash syntax:
 
 ```powershell
-$root = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }
+$root = if ($env:PI_PACKAGE_ROOT) { $env:PI_PACKAGE_ROOT }
+    elseif ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT }
+    else { $env:PLUGIN_ROOT }
 $helpers = Join-Path $root "scripts"
 $python = if (Get-Command py -ErrorAction SilentlyContinue) { "py" }
     elseif (Get-Command python -ErrorAction SilentlyContinue) { "python" }
