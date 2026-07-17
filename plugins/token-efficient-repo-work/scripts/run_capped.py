@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -53,6 +54,16 @@ def main() -> None:
         parser.error("no command given; use: run_capped.py [options] -- COMMAND [ARGS...]")
 
     start = time.monotonic()
+    os.makedirs(args.log_dir, exist_ok=True)
+    stamp = f"{datetime.now():%Y%m%d-%H%M%S}-{time.time_ns() % 1_000_000_000:09d}"
+    log_path = os.path.join(args.log_dir, f"run-{stamp}-{os.getpid()}.log")
+    fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    log = os.fdopen(fd, "w", encoding="utf-8")
+    process_group = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if os.name == "nt"
+        else {"start_new_session": True}
+    )
     try:
         proc = subprocess.Popen(
             command,
@@ -60,24 +71,42 @@ def main() -> None:
             errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            **process_group,
         )
-    except FileNotFoundError as exc:
-        print(f"Command not found: {truncate_line(redact_text(str(exc)), args.line_width)}")
-        sys.exit(127)
+    except Exception as exc:
+        log.close()
+        os.unlink(log_path)
+        if isinstance(exc, FileNotFoundError):
+            print(f"Command not found: {truncate_line(redact_text(str(exc)), args.line_width)}")
+            sys.exit(127)
+        raise
 
     timed_out = threading.Event()
 
     def kill_on_timeout() -> None:
         timed_out.set()
-        proc.kill()
+        try:
+            if os.name == "nt":
+                if proc.poll() is not None:
+                    return
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
 
     timer = threading.Timer(args.timeout, kill_on_timeout)
     timer.start()
-
-    os.makedirs(args.log_dir, exist_ok=True)
-    log_path = os.path.join(
-        args.log_dir, f"run-{datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}.log"
-    )
 
     # Stream: full raw output goes to the log file; only head, tail, and
     # capped error lines stay in memory regardless of output size.
@@ -87,7 +116,7 @@ def main() -> None:
     error_total = 0
     line_count = 0
     try:
-        with open(log_path, "w", encoding="utf-8") as log:
+        with log:
             for raw in proc.stdout or []:
                 log.write(raw)
                 line_count += 1
@@ -102,6 +131,7 @@ def main() -> None:
         exit_code = proc.wait()
     finally:
         timer.cancel()
+        timer.join()
     duration = time.monotonic() - start
 
     sections = [

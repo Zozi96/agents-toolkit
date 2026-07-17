@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -504,12 +505,15 @@ class ScriptSmokeTests(unittest.TestCase):
             )
             logs = list(Path(tmp).glob("run-*.log"))
             log_lines = logs[0].read_text(encoding="utf-8").splitlines()
+            log_mode = logs[0].stat().st_mode & 0o777
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Output Lines: 5000", result.stdout)
         self.assertIn("   1: line 0", result.stdout)
         self.assertIn("   5000: line 4999", result.stdout)
         self.assertEqual(len(log_lines), 5000)
+        if os.name != "nt":
+            self.assertEqual(log_mode, 0o600)
         self.assertLessEqual(len(result.stdout), 13000)
 
     def test_run_capped_times_out_with_exit_124(self):
@@ -529,6 +533,28 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 124, result.stdout)
         self.assertIn("TIMEOUT", result.stdout)
         self.assertIn("begin", result.stdout)
+
+    @unittest.skipIf(os.name == "nt", "POSIX process-group behavior")
+    def test_run_capped_timeout_kills_process_group_after_parent_exits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            start = time.monotonic()
+            result = run_script(
+                "run_capped.py",
+                "--timeout",
+                "0.2",
+                "--log-dir",
+                tmp,
+                "--",
+                PYTHON,
+                "-c",
+                "import subprocess, sys, time; "
+                "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)']); "
+                "print('begin', flush=True)",
+            )
+            elapsed = time.monotonic() - start
+
+        self.assertEqual(result.returncode, 124, result.stdout)
+        self.assertLess(elapsed, 3)
 
     def test_safe_read_redacts_and_marks_matches(self):
         result = run_script(
