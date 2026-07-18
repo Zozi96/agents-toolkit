@@ -1,6 +1,6 @@
 {
   "name": "agents-toolkit",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Token-efficient repository workflow for Pi, Codex, and Claude Code.",
   "type": "module",
   "license": "MIT",

@@ -149,6 +149,7 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(pre_tool["matcher"], "Bash")
         self.assertIn("pre-tool-use.py", pre_tool["hooks"][0]["command"])
         self.assertIn("pre-tool-use.ps1", pre_tool["hooks"][0]["commandWindows"])
+        self.assertEqual(pre_tool["hooks"][0]["timeout"], 15)
         post_tool = hooks["hooks"]["PostToolUse"][0]
         self.assertEqual(post_tool["matcher"], "Bash")
         self.assertIn("post-tool-use.py", post_tool["hooks"][0]["command"])

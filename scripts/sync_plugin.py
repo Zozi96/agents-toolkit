@@ -94,7 +94,7 @@ def main():
                             "type": "command",
                             "command": 'p="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; y="$(command -v python3 || command -v python)"; if [ -n "$y" ] && [ -f "$p/hooks/pre-tool-use.py" ]; then exec "$y" "$p/hooks/pre-tool-use.py"; fi; cat >/dev/null 2>&1; exit 0',
                             "commandWindows": "pwsh -NoProfile -Command \"$r = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }; $s = if ($r) { Join-Path $r 'hooks/pre-tool-use.ps1' }; if ($s -and (Test-Path $s)) { & $s } else { $null = [Console]::In.ReadToEnd(); exit 0 }\"",
-                            "timeout": 5,
+                            "timeout": 15,
                             "statusMessage": "Checking token-safe command routing",
                         }
                     ]
