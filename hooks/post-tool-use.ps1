@@ -1,5 +1,12 @@
 $ErrorActionPreference = "Stop"
 
+# Drain stdin first: exiting before reading it makes the harness's payload
+# write fail with "failed to write hook stdin: Broken pipe".
+# Pipeline input arrives via $input when invoked in-process (& script.ps1);
+# process stdin via [Console]::In when spawned as a child (real hook usage).
+$payload = @($input) -join "`n"
+if (-not $payload) { $payload = [Console]::In.ReadToEnd() }
+
 $python = $null
 $pythonArgs = @()
 foreach ($candidate in @(@("py", "-3"), @("python"), @("python3"))) {
@@ -14,8 +21,6 @@ foreach ($candidate in @(@("py", "-3"), @("python"), @("python3"))) {
 }
 if (-not $python) { throw "Python 3 is required" }
 
-$payload = @($input) -join "`n"
-if (-not $payload) { $payload = [Console]::In.ReadToEnd() }
 $root = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }
 if (-not $root) { exit 0 }
 $payload | & $python @pythonArgs (Join-Path $root "hooks/post-tool-use.py")

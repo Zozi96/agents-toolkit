@@ -135,6 +135,13 @@ def summary(command, text, log_path, redact_text, limit=SUMMARY_LIMIT):
 
 
 def main():
+    # Drain stdin before any early exit: unread payload bytes make the
+    # harness's write fail with "failed to write hook stdin: Broken pipe".
+    try:
+        raw = sys.stdin.buffer.read()
+    except OSError:
+        raw = b""
+
     plugin_root = os.environ.get("PLUGIN_ROOT")
     claude_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     root = plugin_root or claude_root
@@ -144,8 +151,8 @@ def main():
     try:
         from _agent_utils import redact_text
 
-        payload = json.load(sys.stdin)
-    except (ImportError, json.JSONDecodeError, OSError, TypeError, ValueError):
+        payload = json.loads(raw.decode("utf-8", errors="replace"))
+    except (ImportError, json.JSONDecodeError, TypeError, ValueError):
         return 0
 
     if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":

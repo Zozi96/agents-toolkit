@@ -144,11 +144,13 @@ def check(command, cwd):
 
 
 def main():
+    # Read stdin fully as bytes first: a decode abort mid-stream would leave
+    # unread payload and break the harness's pipe write (EPIPE).
     try:
-        payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, OSError):
+        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
+    except (json.JSONDecodeError, OSError, ValueError):
         return 0
-    if payload.get("tool_name") != "Bash":
+    if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
         return 0
     command = (payload.get("tool_input") or {}).get("command") or ""
     cwd = payload.get("cwd") or os.getcwd()

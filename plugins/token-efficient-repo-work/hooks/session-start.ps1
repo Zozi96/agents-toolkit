@@ -1,5 +1,12 @@
 $ErrorActionPreference = "Stop"
 
+# Drain stdin first: exiting before reading it makes the harness's payload
+# write fail with "failed to write hook stdin: Broken pipe".
+# Pipeline input arrives via $input when invoked in-process (& script.ps1);
+# process stdin via [Console]::In when spawned as a child (real hook usage).
+$payload = @($input) -join "`n"
+if (-not $payload) { $payload = [Console]::In.ReadToEnd() }
+
 # Pick the first candidate that actually runs: Get-Command alone is fooled by
 # the Windows Store python stub and by a py launcher with no registered Python.
 $python = $null
@@ -17,10 +24,6 @@ foreach ($candidate in @(@("py", "-3"), @("python"), @("python3"))) {
 }
 if (-not $python) { throw "Python 3 is required" }
 
-# Pipeline input arrives via $input when invoked in-process (& script.ps1);
-# process stdin via [Console]::In when spawned as a child (real hook usage).
-$payload = @($input) -join "`n"
-if (-not $payload) { $payload = [Console]::In.ReadToEnd() }
 $root = if ($env:CLAUDE_PLUGIN_ROOT) { $env:CLAUDE_PLUGIN_ROOT } else { $env:PLUGIN_ROOT }
 if (-not $root) { throw "CLAUDE_PLUGIN_ROOT or PLUGIN_ROOT is required" }
 $payload | & $python @pythonArgs (Join-Path $root "hooks/session-start.py")

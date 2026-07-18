@@ -51,9 +51,13 @@ def repository_context(cwd):
 
 
 def main():
+    # Read stdin fully as bytes first so the harness's payload write never
+    # hits a closed pipe (EPIPE), even on invalid JSON or bad encoding.
     try:
-        payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, OSError):
+        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
+    except (json.JSONDecodeError, OSError, ValueError):
+        payload = {}
+    if not isinstance(payload, dict):
         payload = {}
     if payload.get("source", "startup") == "compact":
         additional = COMPACT_POLICY

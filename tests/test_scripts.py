@@ -267,6 +267,36 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
+    def test_hooks_drain_stdin_before_early_exit(self):
+        # Regression: a hook exiting with unread payload bytes makes the
+        # harness's write fail with "failed to write hook stdin: Broken pipe".
+        filler = "x" * 2_000_000  # far beyond the 64 KiB pipe buffer
+        cases = [
+            ("hooks/post-tool-use.py", {"tool_name": "Bash", "tool_response": filler}),
+            ("hooks/pre-tool-use.py", {"tool_name": "Other", "filler": filler}),
+            ("hooks/session-start.py", {"source": "compact", "filler": filler}),
+        ]
+        env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT")}
+        for script, payload in cases:
+            with self.subTest(script=script):
+                proc = subprocess.Popen(
+                    [PYTHON, str(ROOT / script)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                )
+                try:
+                    try:
+                        proc.stdin.write(json.dumps(payload).encode("utf-8"))
+                        proc.stdin.close()
+                    except OSError:
+                        proc.kill()
+                        self.fail(f"{script} exited without draining stdin (EPIPE)")
+                finally:
+                    stderr = proc.communicate(timeout=30)[1]
+                self.assertEqual(proc.returncode, 0, stderr)
+
     def test_post_tool_use_small_output_is_silent_and_writes_no_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
