@@ -287,14 +287,14 @@ class ScriptSmokeTests(unittest.TestCase):
                     env=env,
                 )
                 try:
-                    try:
-                        proc.stdin.write(json.dumps(payload).encode("utf-8"))
-                        proc.stdin.close()
-                    except OSError:
-                        proc.kill()
-                        self.fail(f"{script} exited without draining stdin (EPIPE)")
-                finally:
-                    stderr = proc.communicate(timeout=30)[1]
+                    proc.stdin.write(json.dumps(payload).encode("utf-8"))
+                except OSError:
+                    proc.kill()
+                    proc.wait(timeout=30)
+                    self.fail(f"{script} exited without draining stdin (EPIPE)")
+                # Leave closing stdin to communicate(): closing it here first
+                # makes Python 3.11's communicate() flush a closed file.
+                stderr = proc.communicate(timeout=30)[1]
                 self.assertEqual(proc.returncode, 0, stderr)
 
     def test_post_tool_use_small_output_is_silent_and_writes_no_log(self):
