@@ -477,7 +477,7 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual(self.run_pre_tool_use(command + " | head -c 12000"), "")
         self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use("echo ok | head && git diff")))
         quoted_path = "git diff -- 'dir/a;b.cs'"
-        self.assertIn(quoted_path + " | head -c 12000", self.deny_reason(self.run_pre_tool_use(quoted_path)))
+        self.assertIn(f"{quoted_path} | {cap}", self.deny_reason(self.run_pre_tool_use(quoted_path)))
         self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use("git log --grep='x;y' -p")))
 
     def test_pre_tool_use_allows_capped_git_commands(self):
