@@ -441,6 +441,15 @@ class ScriptSmokeTests(unittest.TestCase):
             self.assertIn("run_capped.py", self.deny_reason(self.run_pre_tool_use(command)), command)
         self.assertEqual(self.run_pre_tool_use("python3 scripts/run_capped.py -- pytest"), "")
 
+    def test_pre_tool_use_matches_executed_test_commands_only(self):
+        for command in ("pytest; echo run_capped.py", "echo safe_read.py; pytest"):
+            self.assertIn("run_capped.py", self.deny_reason(self.run_pre_tool_use(command)), command)
+        for command in ("echo '&& pytest'", "python3 - <<'PY'\nnote; pytest\nPY"):
+            self.assertEqual(self.run_pre_tool_use(command), "", command)
+        for command in ("PyTest.EXE", "& 'pytest.exe'", "NPM.CMD test", "py -3 -m pytest"):
+            result = self.run_pre_tool_use(command, PI_POWERSHELL="1", PLUGIN_ROOT=str(ROOT))
+            self.assertIn("run_capped.py", self.deny_reason(result), command)
+
     def test_pre_tool_use_denies_git_patch_dumps(self):
         for command in ("git diff", "git show HEAD", "git log -p -3"):
             self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use(command)), command)
@@ -459,8 +468,36 @@ class ScriptSmokeTests(unittest.TestCase):
         reason = self.deny_reason(self.run_pre_tool_use("git diff -- path/to/file"))
         self.assertIn("diff_summary.py", reason)
 
+    def test_pre_tool_use_scopes_git_diff_routing_to_its_shell_segment(self):
+        command = "sed -n '1,20p' one.cs && git diff -- one.cs two.cs"
+        reason = self.deny_reason(self.run_pre_tool_use(command))
+        self.assertIn("git diff -- one.cs two.cs | head -c 12000", reason)
+        self.assertNotIn("sed -n", reason)
+        self.assertEqual(self.run_pre_tool_use(command + " | head -c 12000"), "")
+        self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use("echo ok | head && git diff")))
+        quoted_path = "git diff -- 'dir/a;b.cs'"
+        self.assertIn(quoted_path + " | head -c 12000", self.deny_reason(self.run_pre_tool_use(quoted_path)))
+        self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use("git log --grep='x;y' -p")))
+
     def test_pre_tool_use_allows_capped_git_commands(self):
         for command in ("git diff --stat", "git log --oneline -5", "git show --name-only HEAD", "git status"):
+            self.assertEqual(self.run_pre_tool_use(command), "", command)
+
+    def test_pre_tool_use_requires_a_bounded_git_output_filter(self):
+        for command in (
+            "git diff | grep TODO",
+            "git diff | rg TODO",
+            "git diff | sed -n '1,20p'",
+            "git diff | awk '{print}'",
+            "git diff -- foo--stat.txt",
+            "git diff -- --stat",
+            "git diff -- 'x > out'",
+            "git diff --stat --patch",
+            "git show --name-only --patch HEAD",
+            "git show HEAD -- dir/a:b.txt",
+        ):
+            self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use(command)), command)
+        for command in ("git diff | head", "git diff | head -c 12000", "git diff | tail -40", "git diff | wc -l"):
             self.assertEqual(self.run_pre_tool_use(command), "", command)
 
     def test_pre_tool_use_allows_stdout_redirects_and_file_at_rev(self):
@@ -487,6 +524,10 @@ class ScriptSmokeTests(unittest.TestCase):
 
             reason = self.deny_reason(self.run_pre_tool_use(f"cat {big_text}", cwd=tmp))
             self.assertIn("safe_read.py", reason)
+            compound = self.deny_reason(self.run_pre_tool_use("echo safe_read.py; cat big.log", cwd=tmp))
+            self.assertIn("safe_read.py", compound)
+            unrelated_cap = self.deny_reason(self.run_pre_tool_use("echo ok | head; cat big.log", cwd=tmp))
+            self.assertIn("safe_read.py", unrelated_cap)
             self.assertIn("summarize_json.py", self.deny_reason(self.run_pre_tool_use("cat big.json", cwd=tmp)))
             self.assertIn("summarize_data.py", self.deny_reason(self.run_pre_tool_use("cat big.jsonl", cwd=tmp)))
             self.assertEqual(self.run_pre_tool_use("cat small.txt", cwd=tmp), "")
