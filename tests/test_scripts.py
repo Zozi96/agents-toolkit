@@ -471,7 +471,8 @@ class ScriptSmokeTests(unittest.TestCase):
     def test_pre_tool_use_scopes_git_diff_routing_to_its_shell_segment(self):
         command = "sed -n '1,20p' one.cs && git diff -- one.cs two.cs"
         reason = self.deny_reason(self.run_pre_tool_use(command))
-        self.assertIn("git diff -- one.cs two.cs | head -c 12000", reason)
+        cap = "Select-Object -First 200" if os.name == "nt" else "head -c 12000"
+        self.assertIn(f"git diff -- one.cs two.cs | {cap}", reason)
         self.assertNotIn("sed -n", reason)
         self.assertEqual(self.run_pre_tool_use(command + " | head -c 12000"), "")
         self.assertIn("diff_summary.py", self.deny_reason(self.run_pre_tool_use("echo ok | head && git diff")))
